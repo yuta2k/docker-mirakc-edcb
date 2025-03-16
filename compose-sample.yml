@@ -1,0 +1,59 @@
+services:
+  mirakc:
+    build:
+      context: mirakc
+    container_name: mirakc
+    init: true
+    restart: unless-stopped
+    devices:
+      - /dev/bus:/dev/bus
+      # チューナデバイスを指定する
+      # - /dev/dvb:/dev/dvb
+      # - /dev/pt3video0
+      # - /dev/pt3video1
+      # - /dev/pt3video2
+      # - /dev/pt3video3
+    # ports:
+    #   - 40772:40772
+    volumes:
+      - mirakc-epg:/var/lib/mirakc/epg
+      - ./mirakc/config.yml:/etc/mirakc/config.yml:ro
+    environment:
+      - TZ=Asia/Tokyo
+      - RUST_LOG=info
+
+  edcb:
+    build:
+      context: edcb
+      # args:
+      #   - EDCB_CHECKOUT=COMMIT_HASH_HERE
+      #   - BON_DRIVER_CHECKOUT=COMMIT_HASH_HERE
+      #   - EMWUI_CHECKOUT=COMMIT_HASH_HERE
+    container_name: edcb
+    restart: unless-stopped
+    depends_on:
+      - mirakc
+    # devices:
+    #   # for hardware transcoding
+    #   - /dev/dri
+    ports:
+      - 4510:4510
+      - 5510:5510
+    volumes:
+      - ./edcb/ini:/var/local/edcb
+      # 録画ファイルの保存先を指定する
+      # - /mnt/recorded:/recorded
+    # user: 1000:1000
+    # group_add:
+    #   # for hardware transcoding
+    #   - video
+    environment:
+      - TZ=Asia/Tokyo
+      - MIRKAC_ADDRESS=mirakc
+      - MIRKAC_PORT=40772
+      # - UMASK=002
+
+volumes:
+  mirakc-epg:
+    name: mirakc_epg
+    driver: local

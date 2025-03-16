@@ -1,0 +1,23 @@
+epg:
+  cache-dir: /var/lib/mirakc/epg
+
+server:
+  addrs:
+    - http: '0.0.0.0:40772'
+
+channels:
+  # Add channels of interest.
+  - name: NHK
+    type: GR
+    channel: '27'
+
+tuners:
+  # Add tuners available on a local machine.
+  - name: Tuner0
+    types: [GR]
+    command: >-
+      recpt1 --device /dev/px4video2 {{{channel}}} - -
+
+filters:
+  decode-filter:
+    command: arib-b25-stream-test
