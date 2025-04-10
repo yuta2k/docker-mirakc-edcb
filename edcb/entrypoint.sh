@@ -14,7 +14,8 @@ if [ -n "$UMASK" ]; then
 fi
 
 # first run or updated: copy EDCB_Material_WebUI to volume
-cp -rn /usr/local/s3-exit-on-container-stoprc/EDCB_Material_WebUI/HttpPublic /var/local/edcb/
+cp -rn /usr/local/src/EDCB_Material_WebUI/Setting /var/local/edcb/
+cp -ru /usr/local/src/EDCB_Material_WebUI/HttpPublic /var/local/edcb/
 
 # first run or updated: setup EDCB ini files
 (cd /usr/local/src/EDCB/Document/Unix && make -s setup_ini)
