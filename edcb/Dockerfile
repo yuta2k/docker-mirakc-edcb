@@ -49,9 +49,6 @@ ENV MIRKAC_ADDRESS=
 ENV MIRAKC_PORT=
 ENV UMASK=
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
 # copy EDCB_Material_WebUI
 # (setup on entrypoint.sh)
 COPY --from=build /app/EDCB_Material_WebUI /usr/local/src/EDCB_Material_WebUI
@@ -108,6 +105,9 @@ RUN ln -s /usr/local/lib/edcb/BonDriver_LinuxMirakc.so /usr/local/lib/edcb/BonDr
   ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc.so.ini && \
   ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc_S.so.ini && \
   ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc_T.so.ini
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 4510 5510
 ENTRYPOINT ["/entrypoint.sh"]
