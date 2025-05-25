@@ -46,7 +46,7 @@ EDCB の設定ファイルには介入しないため、セットアップに手
 ### 外部の mirakc・Mirakurun を使用する場合
 
 `compose.yml` を改変し EDCB のみを実行する場合など。  
-edcb コンテナの環境変数 `MIRKAC_ADDRESS` で mirakc または Mirakurun のアドレスを指定できます。
+edcb コンテナの環境変数 `MIRAKC_ADDRESS` で mirakc または Mirakurun のアドレスを指定できます。
 
 IP アドレスで指定する場合は、特に問題ありません。
 

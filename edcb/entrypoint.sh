@@ -2,7 +2,7 @@
 
 # write mirakc server settings to BonDriver_LinuxMirakc.so.ini
 # due to BonDriver_LinuxMirakc can not resolve host name currently
-MIRAKC_IP_ADDRESS=$(getent hosts $MIRKAC_ADDRESS | awk '{ print $1 }')
+MIRAKC_IP_ADDRESS=$(getent hosts $MIRAKC_ADDRESS | awk '{ print $1 }')
 sed -i "s/^SERVER_HOST=.*/SERVER_HOST=\"$MIRAKC_IP_ADDRESS\"/" /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
 sed -i "s/^SERVER_PORT=.*/SERVER_PORT=\"$MIRAKC_PORT\"/" /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
 

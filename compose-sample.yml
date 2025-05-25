@@ -49,8 +49,8 @@ services:
     #   - video
     environment:
       - TZ=Asia/Tokyo
-      - MIRKAC_ADDRESS=mirakc
-      - MIRKAC_PORT=40772
+      - MIRAKC_ADDRESS=mirakc
+      - MIRAKC_PORT=40772
       # - UMASK=002
 
 volumes:

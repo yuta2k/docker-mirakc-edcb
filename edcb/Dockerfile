@@ -45,7 +45,7 @@ RUN git clone https://github.com/tkntrec/EDCB.git && \
 
 FROM ${ARCH}ubuntu:24.04
 
-ENV MIRKAC_ADDRESS=
+ENV MIRAKC_ADDRESS=
 ENV MIRAKC_PORT=
 ENV UMASK=
 
