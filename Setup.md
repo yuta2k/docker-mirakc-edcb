@@ -26,6 +26,56 @@
 # docker compose up -d
 ```
 
+## チャンネル設定
+
+チャンネルスキャンを実行するか、チャンネル定義ファイルを配置します。
+
+### チャンネルスキャン
+
+次のコマンドを実行します。
+
+```
+# docker compose exec edcb EpgDataCap_Bon -d BonDriver_LinuxMirakc.so -chscan
+```
+
+完了後、 `edcb/ini/Setting/` 下に以下のファイルが生成されます。
+
+* `BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt`
+* `ChSet5.txt`
+
+
+地上波または BS・CS 専用チューナを含む場合、 [EDCB-Wine の説明](https://github.com/tsukumijima/EDCB-Wine?tab=readme-ov-file#4-edcb-%E3%81%AE%E8%A8%AD%E5%AE%9A)を参考に次のファイルも作成すると良いでしょう。
+
+* `BonDriver_LinuxMirakc_S(LinuxMirakc).ChSet4.txt`
+* `BonDriver_LinuxMirakc_T(LinuxMirakc).ChSet4.txt`
+
+作業完了後
+
+```
+# docker compose restart edcb
+```
+
+で EDCB (EpgTimerSrv) を再起動し、反映します。
+
+### ISDBScanner の出力結果を使用する
+
+[ISDBScanner](https://github.com/tsukumijima/ISDBScanner) をお使いの場合 `EDCB-Wine` 用の設定を流用し、 `edcb/ini/Setting/` 下に次のファイルを配置することができます。  
+ChSet4.txt のファイル名が異なりますので、注意してください。
+
+* `BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt`
+* `BonDriver_LinuxMirakc_S(LinuxMirakc).ChSet4.txt`
+* `BonDriver_LinuxMirakc_T(LinuxMirakc).ChSet4.txt`
+* `ChSet5.txt`
+
+配置後
+
+```
+# docker compose restart edcb
+```
+
+で EDCB (EpgTimerSrv) を再起動し、反映します。
+
+
 ## EDCB のアクセス制御設定
 
 `edcb/ini/EpgTimerSrv.ini` の `HttpAccessControlList` に WebUI などへアクセスを許可する接続元を追記します。  
@@ -72,56 +122,6 @@ Legacy WebUI には `http://ホストの IP アドレスなど:5510/legacy` で�
     SrvPipe, 0.0.0.1:0 を追加
   * 設定/視聴に使用するBonDriver  
     BonDriver を追加
-
-## チャンネル設定
-
-チャンネル定義ファイルを配置するか、チャンネルスキャンを実行します。
-
-### ISDBScanner の出力結果を使用
-
-[ISDBScanner](https://github.com/tsukumijima/ISDBScanner) をお使いの場合 `EDCB-Wine` 用の設定を流用し、 `edcb/ini/Setting/` 下に次のファイルを配置することができます。  
-ChSet4.txt のファイル名が異なりますので、注意してください。
-
-* `BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt`
-* `BonDriver_LinuxMirakc_S(LinuxMirakc).ChSet4.txt`
-* `BonDriver_LinuxMirakc_T(LinuxMirakc).ChSet4.txt`
-* `ChSet5.txt`
-
-配置後
-
-```
-# docker compose restart edcb
-```
-
-で EDCB (EpgTimerSrv) を再起動し、反映します。
-
-
-### チャンネルスキャン
-
-次のコマンドを実行します。
-
-```
-# docker compose exec edcb EpgDataCap_Bon -d BonDriver_LinuxMirakc.so -chscan
-```
-
-完了後、 `edcb/ini/Setting/` 下に以下のファイルが生成されます。
-
-* `BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt`
-* `ChSet5.txt`
-
-
-地上波または BS・CS 専用チューナを含む場合、 [EDCB-Wine の説明](https://github.com/tsukumijima/EDCB-Wine?tab=readme-ov-file#4-edcb-%E3%81%AE%E8%A8%AD%E5%AE%9A)を参考に次のファイルも作成すると良いでしょう。
-
-* `BonDriver_LinuxMirakc_S(LinuxMirakc).ChSet4.txt`
-* `BonDriver_LinuxMirakc_T(LinuxMirakc).ChSet4.txt`
-
-作業完了後
-
-```
-# docker compose restart edcb
-```
-
-で EDCB (EpgTimerSrv) を再起動し、反映します。
 
 ## EPG 取得
 
