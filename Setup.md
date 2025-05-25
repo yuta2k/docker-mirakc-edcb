@@ -28,7 +28,8 @@
 
 ## チャンネル設定
 
-チャンネルスキャンを実行するか、チャンネル定義ファイルを配置します。
+チャンネルスキャンを実行するか、チャンネル定義ファイルを配置します。  
+(セットアップ後に再スキャン・定義を変更する際には、edcb コンテナの再起動も行ってください)
 
 ### チャンネルスキャン
 
@@ -48,14 +49,6 @@
 * `BonDriver_LinuxMirakc_S(LinuxMirakc).ChSet4.txt`
 * `BonDriver_LinuxMirakc_T(LinuxMirakc).ChSet4.txt`
 
-作業完了後
-
-```
-# docker compose restart edcb
-```
-
-で EDCB (EpgTimerSrv) を再起動し、反映します。
-
 ### ISDBScanner の出力結果を使用する
 
 [ISDBScanner](https://github.com/tsukumijima/ISDBScanner) をお使いの場合 `EDCB-Wine` 用の設定を流用し、 `edcb/ini/Setting/` 下に次のファイルを配置することができます。  
@@ -65,14 +58,6 @@ ChSet4.txt のファイル名が異なりますので、注意してください
 * `BonDriver_LinuxMirakc_S(LinuxMirakc).ChSet4.txt`
 * `BonDriver_LinuxMirakc_T(LinuxMirakc).ChSet4.txt`
 * `ChSet5.txt`
-
-配置後
-
-```
-# docker compose restart edcb
-```
-
-で EDCB (EpgTimerSrv) を再起動し、反映します。
 
 ## EDCB のアクセス制御設定
 
@@ -95,7 +80,7 @@ ChSet4.txt のファイル名が異なりますので、注意してください
 ## EDCB のほか設定
 
 現状 Linux 版 EDCB は、主にブラウザから Legacy WebUI を操作して設定・管理を行います。  
-(あるいはテキストエディタで ini ファイルを直接編集することも出来ます)  
+(あるいはテキストエディタで ini ファイルを直接編集することも出来ます)
 
 初期状態では Legacy WebUI からの設定変更が禁止されているため、次のようにシェルスクリプトを実行し、許可するよう変更します。
 
