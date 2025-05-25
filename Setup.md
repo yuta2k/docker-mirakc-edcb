@@ -43,7 +43,6 @@
 * `BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt`
 * `ChSet5.txt`
 
-
 地上波または BS・CS 専用チューナを含む場合、 [EDCB-Wine の説明](https://github.com/tsukumijima/EDCB-Wine?tab=readme-ov-file#4-edcb-%E3%81%AE%E8%A8%AD%E5%AE%9A)を参考に次のファイルも作成すると良いでしょう。
 
 * `BonDriver_LinuxMirakc_S(LinuxMirakc).ChSet4.txt`
@@ -74,7 +73,6 @@ ChSet4.txt のファイル名が異なりますので、注意してください
 ```
 
 で EDCB (EpgTimerSrv) を再起動し、反映します。
-
 
 ## EDCB のアクセス制御設定
 
