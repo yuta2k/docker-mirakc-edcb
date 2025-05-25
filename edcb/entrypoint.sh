@@ -5,7 +5,7 @@
 # write mirakc server settings to BonDriver_LinuxMirakc.so.ini
 # due to BonDriver_LinuxMirakc can not resolve host name currently
 
-# typo collection for under v1.0.4 compose.yml
+# typo correction for under v1.0.4 compose.yml
 if [ -z "$MIRAKC_ADDRESS" ] && [ -n "$MIRKAC_ADDRESS" ]; then MIRAKC_ADDRESS=$MIRKAC_ADDRESS; fi
 if [ -z "$MIRAKC_PORT" ] && [ -n "$MIRKAC_PORT" ]; then MIRAKC_PORT=$MIRKAC_PORT; fi
 
