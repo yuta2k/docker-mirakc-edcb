@@ -97,6 +97,7 @@ ChSet4.txt のファイル名が異なりますので、注意してください
 ## EDCB のほか設定
 
 現状 Linux 版 EDCB は、主にブラウザから Legacy WebUI を操作して設定・管理を行います。  
+(あるいはテキストエディタで ini ファイルを直接編集することも出来ます)  
 
 初期状態では Legacy WebUI からの設定変更が禁止されているため、次のようにシェルスクリプトを実行し、許可するよう変更します。
 
@@ -120,7 +121,7 @@ Legacy WebUI には `http://ホストの IP アドレスなど:5510/legacy` で�
 * EMWUI でリモート視聴を使いたい場合:
   * 録画アプリ(EpgDataCap_Bon) - ネットワーク設定 - TCP送信先  
     SrvPipe, 0.0.0.1:0 を追加
-  * 設定/視聴に使用するBonDriver  
+  * その他 - 視聴に使用するBonDriver  
     BonDriver を追加
 
 ## EPG 取得
