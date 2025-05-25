@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# === BonDriver_LinuxMirakc setup ===
+# === setup BonDriver_LinuxMirakc ===
 
 # write mirakc server settings to BonDriver_LinuxMirakc.so.ini
 # due to BonDriver_LinuxMirakc can not resolve host name currently
@@ -22,7 +22,8 @@ fi
 sed -i "s/^SERVER_HOST=.*/SERVER_HOST=\"$MIRAKC_IP_ADDRESS\"/" /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
 sed -i "s/^SERVER_PORT=.*/SERVER_PORT=\"$MIRAKC_PORT\"/" /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
 
-# === end of BonDriver_LinuxMirakc setup ===
+# === end of setup BonDriver_LinuxMirakc ===
+
 
 # clean old *.fifo files made by SrvPipe from the previous run
 rm -f /var/local/edcb/*.fifo
