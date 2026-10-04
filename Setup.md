@@ -1,7 +1,7 @@
 
 # セットアップ方法
 
-原則、各種ソフトウェアの最新コミットを使用してビルドするため、実情と異なる可能性があります。
+各種ソフトウェアは `edcb/Dockerfile` で固定したバージョンを使用してビルドします。
 
 ## 事前準備
 
@@ -10,10 +10,13 @@
 * `mirakc/config-sample.yml` を参考に `mirakc/config.yml` を作成・記入する  
   あるいは [ISDBScanner](https://github.com/tsukumijima/ISDBScanner) などで生成する  
   mirakc のドキュメント: https://mirakc.github.io/dekiru-mirakc/stable/config/
-* `compose-sample.yml` を参考に `compose.yml` を作成・記入する  
+* `compose.override-sample.yml` を参考に `compose.override.yml` を作成・記入する  
+  `compose.yml` は全員共通の定義なので編集せず、環境ごとの設定を `compose.override.yml` に書きます
   * mirakc: `devices` にチューナのデバイスファイルの場所を記述
   * edcb: `volumes` に録画ファイルの保存先を指定
   * ほかお好みで改変してください
+  * 同じ名前のフォルダに置いた構成を同じホストで 2 つ動かす場合は、片方の `.env` に `COMPOSE_PROJECT_NAME=<別の名前>` を書いてください  
+    書かないと、2 つの構成が同じプロジェクトとして扱われ、片方の操作がもう片方のコンテナを作り直したり削除したりします
 * 必要であれば、次の場所に edcb コンテナを実行するユーザが読み書きできるよう、所有者・パーミッションを設定
   * `edcb/ini`
   * `volumes` で指定した録画ファイルの保存先
@@ -92,7 +95,7 @@ Legacy WebUI には `http://ホストの IP アドレスなど:5510/legacy` で�
 「設定メニュー」より最低限、次のような設定を行うとよいでしょう。
 
 * 基本設定 - 録画保存フォルダ  
-  `compose.yml` の `volumes` に追加した場所を指定
+  `compose.override.yml` の `volumes` に追加した場所を指定
 * 基本設定 - BonDriver  
   チューナー数を指定  
   BonDriver は [EDCB-Wine](https://github.com/tsukumijima/EDCB-Wine?tab=readme-ov-file#1-%E5%8B%95%E4%BD%9C%E7%A2%BA%E8%AA%8D%E7%92%B0%E5%A2%83) を参考に次のような構成としています
@@ -109,7 +112,7 @@ Legacy WebUI には `http://ホストの IP アドレスなど:5510/legacy` で�
 
 ## 録画保存先が btrfs の場合
 
-このイメージの EDCB には `edcb/patches/` のパッチを当てており、btrfs に録画する場合の既定の動作を変えています。
+このイメージの EDCB には `edcb/patches/edcb/` のパッチを当てており、btrfs に録画する場合の既定の動作を変えています。
 
 ### 録画開始時の容量確保
 
@@ -130,7 +133,7 @@ Prealloc=2
 |---|---|
 | `0` | 確保しない |
 | `1` | 確保する(上流の EDCB と同じ動作) |
-| `2` | btrfs 上では確保しない(このイメージの既定。`compose.yml` のビルド引数 `EDCB_PREALLOC_DEFAULT` で変更可) |
+| `2` | btrfs 上では確保しない(このイメージの既定。`compose.override.yml` のビルド引数 `EDCB_PREALLOC_DEFAULT` で変更可) |
 
 確保をしない場合も `KeepDisk=1` のままにしてください。  
 録画開始時の保存先フォルダの選択には、引き続き番組全体の予定サイズが使われます。

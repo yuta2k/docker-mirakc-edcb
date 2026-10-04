@@ -1,16 +1,36 @@
 ARG ARCH=
-ARG EDCB_CHECKOUT=
-ARG BON_DRIVER_CHECKOUT=
-ARG EMWUI_CHECKOUT=
-# default of Prealloc in Write_Default.so.ini (see edcb/patches/0001-*.patch)
+
+# Upstream sources. These defaults are the only place where the versions are pinned.
+# Each *_COMMIT must be a full SHA-1; the build fails if the fetched source is not at that commit.
+ARG EDCB_REPO=https://github.com/xtne6f/EDCB.git
+ARG EDCB_REF=work-plus-s-260904
+ARG EDCB_COMMIT=ebf50c730ccf8c1732e0bd8a4e2a3417a94d9b2b
+ARG BON_DRIVER_REPO=https://github.com/matching/BonDriver_LinuxMirakc.git
+ARG BON_DRIVER_COMMIT=cfbefc6d21dab4009db5f124984c1b720b76d869
+ARG EMWUI_REPO=https://github.com/EMWUI/EDCB_Material_WebUI.git
+ARG EMWUI_COMMIT=4e5b5c865a481cc8f443d6d468ee9571a8bfcf20
+ARG LUA_REPO=https://github.com/xtne6f/lua.git
+ARG LUA_COMMIT=00e941f334ea08557a8c0c428203456387d54eb3
+ARG LUA_ZLIB_REPO=https://github.com/xtne6f/lua-zlib.git
+ARG LUA_ZLIB_COMMIT=dc3ea17156ad727398ab39501d3cd03e32324165
+
+# default of Prealloc in Write_Default.so.ini (see edcb/patches/edcb/0001-*.patch)
 # 0: no preallocation, 1: preallocate (upstream behavior), 2: no preallocation on btrfs
 ARG EDCB_PREALLOC_DEFAULT=2
 
 FROM ${ARCH}ubuntu:24.04 AS build
 # ARGs declared before FROM are only visible in FROM lines; redeclare to use them in this stage
-ARG EDCB_CHECKOUT
-ARG BON_DRIVER_CHECKOUT
-ARG EMWUI_CHECKOUT
+ARG EDCB_REPO
+ARG EDCB_REF
+ARG EDCB_COMMIT
+ARG BON_DRIVER_REPO
+ARG BON_DRIVER_COMMIT
+ARG EMWUI_REPO
+ARG EMWUI_COMMIT
+ARG LUA_REPO
+ARG LUA_COMMIT
+ARG LUA_ZLIB_REPO
+ARG LUA_ZLIB_COMMIT
 ARG EDCB_PREALLOC_DEFAULT
 WORKDIR /app
 
@@ -19,47 +39,65 @@ RUN apt-get update && \
   apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
+    # used by "make extra" to download the extra tools
     curl \
     build-essential \
     # EDCB dependencies
     liblua5.2-dev \
     lua-zlib
 
+COPY --chmod=755 build/fetch-source.sh /usr/local/bin/fetch-source
+
 # BonDriver_LinuxMirakc
-RUN git clone https://github.com/matching/BonDriver_LinuxMirakc.git --recurse-submodules && \
+RUN fetch-source "$BON_DRIVER_REPO" "" "$BON_DRIVER_COMMIT" BonDriver_LinuxMirakc && \
   cd BonDriver_LinuxMirakc && \
-  if [ -n "$BON_DRIVER_CHECKOUT" ]; then git checkout $BON_DRIVER_CHECKOUT; fi && \
   make
 
 # EDCB_Material_WebUI
-RUN git clone https://github.com/EMWUI/EDCB_Material_WebUI.git && \
-  cd EDCB_Material_WebUI && \
-  if [ -n "$EMWUI_CHECKOUT" ]; then git checkout $EMWUI_CHECKOUT; fi
+RUN fetch-source "$EMWUI_REPO" "" "$EMWUI_COMMIT" EDCB_Material_WebUI
 
 # Lua modules for EDCB
-RUN curl -L https://github.com/xtne6f/lua/archive/refs/heads/v5.2-luabinaries.tar.gz | tar xz && \
-  (cd lua-5.2-luabinaries && make liblua5.2.so) && \
-  curl -L https://github.com/xtne6f/lua-zlib/archive/refs/heads/v0.5-lua52.tar.gz | tar xz && \
-  (cd lua-zlib-0.5-lua52 && make libzlib52.so)
+RUN fetch-source "$LUA_REPO" "" "$LUA_COMMIT" lua && \
+  (cd lua && make liblua5.2.so) && \
+  fetch-source "$LUA_ZLIB_REPO" "" "$LUA_ZLIB_COMMIT" lua-zlib && \
+  (cd lua-zlib && make libzlib52.so)
 
 # EDCB
-# apply edcb/patches/*.patch in order (see each patch for details)
-COPY patches/ /app/edcb-patches/
+# apply edcb/patches/edcb/*.patch in order (see each patch for details)
+# --keep-cr: EDCB sources use CRLF line endings, which git am strips by default
+COPY patches/edcb/ /app/edcb-patches/
 RUN case "$EDCB_PREALLOC_DEFAULT" in 0|1|2) ;; \
     *) echo "EDCB_PREALLOC_DEFAULT must be 0, 1 or 2" >&2; exit 1 ;; \
   esac && \
-  git clone https://github.com/tkntrec/EDCB.git && \
+  fetch-source "$EDCB_REPO" "$EDCB_REF" "$EDCB_COMMIT" EDCB && \
   cd EDCB && \
-  if [ -n "$EDCB_CHECKOUT" ]; then git checkout $EDCB_CHECKOUT; fi && \
-  for p in /app/edcb-patches/*.patch; do \
-    git apply --verbose "$p" || exit 1; \
-  done && \
+  set -- /app/edcb-patches/*.patch && \
+  if [ ! -f "$1" ]; then echo "no patches found in /app/edcb-patches" >&2; exit 1; fi && \
+  git -c user.name=docker-mirakc-edcb -c user.email=docker-mirakc-edcb@localhost \
+    am --3way --keep-cr "$@" && \
+  echo "Applied $# patch(es) on top of $EDCB_COMMIT:" && \
+  git log --oneline "$EDCB_COMMIT..HEAD" && \
   cd Document/Unix && \
   CPPFLAGS="-DWRITE_DEFAULT_PREALLOC_DEFAULT=$EDCB_PREALLOC_DEFAULT" make && \
   make extra
 
-
 FROM ${ARCH}ubuntu:24.04
+ARG EDCB_REPO
+ARG EDCB_REF
+ARG EDCB_COMMIT
+ARG BON_DRIVER_REPO
+ARG BON_DRIVER_COMMIT
+ARG EMWUI_REPO
+ARG EMWUI_COMMIT
+
+# upstream versions this image was built from
+LABEL io.github.yuta2k.docker-mirakc-edcb.edcb.repo="$EDCB_REPO" \
+  io.github.yuta2k.docker-mirakc-edcb.edcb.ref="$EDCB_REF" \
+  io.github.yuta2k.docker-mirakc-edcb.edcb.commit="$EDCB_COMMIT" \
+  io.github.yuta2k.docker-mirakc-edcb.bondriver.repo="$BON_DRIVER_REPO" \
+  io.github.yuta2k.docker-mirakc-edcb.bondriver.commit="$BON_DRIVER_COMMIT" \
+  io.github.yuta2k.docker-mirakc-edcb.emwui.repo="$EMWUI_REPO" \
+  io.github.yuta2k.docker-mirakc-edcb.emwui.commit="$EMWUI_COMMIT"
 
 ENV MIRAKC_ADDRESS=
 ENV MIRAKC_PORT=
@@ -71,8 +109,8 @@ COPY --from=build /app/EDCB_Material_WebUI /usr/local/src/EDCB_Material_WebUI
 
 # copy Lua modules for EDCB
 RUN mkdir -p /usr/local/lib/lua/5.2
-COPY --from=build /app/lua-5.2-luabinaries/liblua5.2.so /usr/local/lib/liblua5.2.so
-COPY --from=build /app/lua-zlib-0.5-lua52/libzlib52.so /usr/local/lib/lua/5.2/libzlib52.so
+COPY --from=build /app/lua/liblua5.2.so /usr/local/lib/liblua5.2.so
+COPY --from=build /app/lua-zlib/libzlib52.so /usr/local/lib/lua/5.2/libzlib52.so
 RUN ldconfig
 
 COPY --from=build /app/EDCB /usr/local/src/EDCB

@@ -80,7 +80,7 @@ tmp=$(mktemp -d); cp -a edcb/ini/*.ini "$tmp/"   # ini だけコピーする。S
 
 ## 実機確認の依頼
 
-- HTTPS: `ssl_cert.pem` を置いて起動し、`https://<ホスト>:5511/EMWUI/` でライブ視聴(TS-Live!)ができるか。手順をまとめてユーザに依頼する。
+- HTTPS: `ssl_cert.pem` を置いて起動し、`https://<ホスト>:5511/E3/` でライブ視聴(TS-Live!)ができるか。手順をまとめてユーザに依頼する。
 
 ## 実施記録
 

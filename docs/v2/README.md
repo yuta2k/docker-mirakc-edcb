@@ -25,7 +25,7 @@
 
 | # | ファイル | 内容 | 状態 |
 |---|---|---|---|
-| 1 | `phases/1-build.md` | 上流の固定、パッチの当て方、CI、compose の git 管理 | 未着手 |
+| 1 | `phases/1-build.md` | 上流の固定、パッチの当て方、CI、compose の git 管理 | レビュー待ち |
 | 2 | `phases/2-provision.md` | プロビジョニングの基盤、実行ユーザ、ヘルスチェック | 未着手 |
 | 3 | `phases/3-backends.md` | BonDriver の修正、複数バックエンド、チューナー数の自動設定 | 未着手 |
 | 4 | `phases/4-channels.md` | チャンネルスキャンの自動化、S/T 分割、`edcbctl` | 未着手 |

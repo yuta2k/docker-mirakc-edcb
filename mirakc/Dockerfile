@@ -1,6 +1,10 @@
 ARG ARCH=
 FROM ${ARCH}mirakc/mirakc:debian
 
+# libaribb25 is pinned to a commit; the build fails if the fetched source is not at that commit
+ARG LIBARIBB25_REPO=https://github.com/tsukumijima/libaribb25.git
+ARG LIBARIBB25_COMMIT=dc1d96a90ea554d8997b238fd6712eccf553cdb3
+
 RUN BUILD_DEPENDENCIES="ca-certificates git build-essential cmake libpcsclite-dev pkg-config" && \
   apt-get update && \
   apt-get upgrade -y && \
@@ -10,9 +14,12 @@ RUN BUILD_DEPENDENCIES="ca-certificates git build-essential cmake libpcsclite-de
     pcscd && \
 \
   ( \
-  cd /tmp && \
-  git clone https://github.com/tsukumijima/libaribb25.git && \
-  cd libaribb25 && \
+  git init -q /tmp/libaribb25 && \
+  cd /tmp/libaribb25 && \
+  git fetch -q --depth 1 "$LIBARIBB25_REPO" "$LIBARIBB25_COMMIT" && \
+  git -c advice.detachedHead=false checkout -q FETCH_HEAD && \
+  test "$(git rev-parse HEAD)" = "$LIBARIBB25_COMMIT" && \
+  echo "Fetched $LIBARIBB25_REPO at $LIBARIBB25_COMMIT" && \
   cmake -B build && \
   cd build && \
   make && \

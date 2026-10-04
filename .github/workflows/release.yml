@@ -1,0 +1,141 @@
+name: release
+
+# Builds the edcb image for amd64 and arm64 and pushes it to GHCR when a v<semver> tag is pushed.
+# Image tags: <version>, <major>.<minor> and latest (latest is skipped for pre-releases).
+# Upstream versions are recorded as image labels by edcb/Dockerfile.
+
+on:
+  push:
+    # semver tags only (v1.2.3, v1.2.3-rc.1); other v* tags would produce no image tags
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/edcb" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # same tag rules as the merge job, so that the version labels match the image tags
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Check tags
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          if [ -z "$TAGS" ]; then
+            echo "::error::no image tags for $GITHUB_REF_NAME (expected a semver tag such as v1.2.3)"
+            exit 1
+          fi
+          echo "$TAGS"
+
+      # build and test locally first so that a broken image is never pushed
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: edcb
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: edcb:release-test
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=edcb-${{ matrix.arch }}
+
+      - name: Smoke test
+        run: .github/scripts/smoke-test.sh edcb:release-test
+
+      # same inputs as above, so this reuses the build cache
+      - id: push
+        name: Push by digest
+        uses: docker/build-push-action@v7
+        with:
+          context: edcb
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=edcb-${{ matrix.arch }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/edcb" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"
