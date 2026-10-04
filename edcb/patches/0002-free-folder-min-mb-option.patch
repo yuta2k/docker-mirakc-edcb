@@ -1,0 +1,149 @@
+From 7a36d3e48e272e3a36c4b695b03a039477557799 Mon Sep 17 00:00:00 2001
+From: yuta2k <yt_ahsa@outlook.com>
+Date: Sun, 4 Oct 2026 21:21:09 +0900
+Subject: [PATCH 2/2] EpgDataCap_Bon:
+ 別フォルダへ切り替える基準の空き容量を設定できるようにする
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+EpgDataCap_Bon.ini の [SET] FreeFolderMinMB(MB 単位、既定 200)で、録画フォルダに
+空きがあるとみなす最低容量(従来は 200MB 固定)を設定できるようにする。
+
+この値は次の判定に使われる。
+- 録画開始時: 空き容量が「予定サイズ + この値」以下のフォルダは使わず、別の録画フォルダを探す
+- 録画中: 書き込みに失敗したとき、空き容量がこの値を超えるフォルダに切り替える
+
+数十 GB 程度にすると、同時に始まる複数の録画が同じフォルダの空きを取り合ったり、
+録画の途中でファイルが別フォルダに分かれたりすることを減らせる。
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ BonCtrl/WriteTSFile.cpp                             | 10 ++++++----
+ BonCtrl/WriteTSFile.h                               |  6 ++++--
+ EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.cpp        |  1 +
+ EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.h          |  1 +
+ EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonDlg.cpp |  1 +
+ EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonMin.cpp |  1 +
+ 6 files changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/BonCtrl/WriteTSFile.cpp b/BonCtrl/WriteTSFile.cpp
+index e9c195e7..e9655a8f 100644
+--- a/BonCtrl/WriteTSFile.cpp
++++ b/BonCtrl/WriteTSFile.cpp
+@@ -6,6 +6,8 @@
+ #include <objbase.h>
+ #endif
+ 
++LONGLONG CWriteTSFile::freeFolderMinBytes = 200 * 1024 * 1024;
++
+ CWriteTSFile::CWriteTSFile(void)
+ {
+ 	this->overWriteFlag = FALSE;
+@@ -166,12 +168,12 @@ void CWriteTSFile::OutThread(CWriteTSFile* sys)
+ 			fs_path recFolder = sys->fileList[i]->recFolder;
+ 			//空き容量をあらかじめチェック
+ 			LONGLONG freeBytes = UtilGetStorageFreeBytes(recFolder);
+-			bool isMainUnknownOrFree = (freeBytes < 0 || freeBytes > (LONGLONG)sys->createSize + FREE_FOLDER_MIN_BYTES);
++			bool isMainUnknownOrFree = (freeBytes < 0 || freeBytes > (LONGLONG)sys->createSize + freeFolderMinBytes);
+ 			if( isMainUnknownOrFree == false ){
+ 				//空きのあるサブフォルダを探してみる
+ 				vector<wstring>::iterator itrFree = std::find_if(sys->saveFolderSub.begin(), sys->saveFolderSub.end(),
+ 					[&](const wstring& a) { return UtilComparePath(a.c_str(), recFolder.c_str()) &&
+-					                               UtilGetStorageFreeBytes(a) > (LONGLONG)sys->createSize + FREE_FOLDER_MIN_BYTES; });
++					                               UtilGetStorageFreeBytes(a) > (LONGLONG)sys->createSize + freeFolderMinBytes; });
+ 				if( itrFree != sys->saveFolderSub.end() ){
+ 					sys->subRecFlag = TRUE;
+ 					recFolder = *itrFree;
+@@ -186,7 +188,7 @@ void CWriteTSFile::OutThread(CWriteTSFile* sys)
+ 				if( isMainUnknownOrFree ){
+ 					vector<wstring>::iterator itrFree = std::find_if(sys->saveFolderSub.begin(), sys->saveFolderSub.end(),
+ 						[&](const wstring& a) { return UtilComparePath(a.c_str(), recFolder.c_str()) &&
+-						                               UtilGetStorageFreeBytes(a) > (LONGLONG)sys->createSize + FREE_FOLDER_MIN_BYTES; });
++						                               UtilGetStorageFreeBytes(a) > (LONGLONG)sys->createSize + freeFolderMinBytes; });
+ 					if( itrFree != sys->saveFolderSub.end() ){
+ 						sys->subRecFlag = TRUE;
+ 						startRes = sys->fileList[i]->writeUtil.Start(fs_path(*itrFree).append(sys->fileList[i]->recFileName).c_str(),
+@@ -259,7 +261,7 @@ void CWriteTSFile::OutThread(CWriteTSFile* sys)
+ 							if( sys->fileList[i]->freeChk == TRUE ){
+ 								//次の空きを探す
+ 								vector<wstring>::iterator itrFree = std::find_if(sys->saveFolderSub.begin(), sys->saveFolderSub.end(),
+-									[](const wstring& a) { return UtilGetStorageFreeBytes(a) > FREE_FOLDER_MIN_BYTES; });
++									[](const wstring& a) { return UtilGetStorageFreeBytes(a) > freeFolderMinBytes; });
+ 								if( itrFree != sys->saveFolderSub.end() ){
+ 									//開始
+ 									if( sys->fileList[i]->writeUtil.Start(fs_path(*itrFree).append(sys->fileList[i]->recFileName).c_str(),
+diff --git a/BonCtrl/WriteTSFile.h b/BonCtrl/WriteTSFile.h
+index 138bd663..cf239c70 100644
+--- a/BonCtrl/WriteTSFile.h
++++ b/BonCtrl/WriteTSFile.h
+@@ -10,8 +10,8 @@
+ class CWriteTSFile
+ {
+ public:
+-	//フォルダに空きがあるとみなす最低容量
+-	static const int FREE_FOLDER_MIN_BYTES = 200 * 1024 * 1024;
++	//フォルダに空きがあるとみなす最低容量(既定200MB)を設定する
++	static void SetFreeFolderMinBytes(LONGLONG bytes) { freeFolderMinBytes = bytes; }
+ 
+ 	CWriteTSFile(void);
+ 	~CWriteTSFile(void);
+@@ -97,5 +97,7 @@ protected:
+ 	wstring mainSaveFilePath;
+ 
+ 	int maxBuffCount;
++	//フォルダに空きがあるとみなす最低容量
++	static LONGLONG freeFolderMinBytes;
+ };
+ 
+diff --git a/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.cpp b/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.cpp
+index e2aeb930..ed6a4787 100644
+--- a/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.cpp
++++ b/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.cpp
+@@ -53,6 +53,7 @@ APP_SETTING APP_SETTING::Load(LPCWSTR iniPath)
+ 	s.traceBonDriverLevel = GET_SETTING_INT(appSet, L"TraceBonDriverLevel", 0);
+ 	s.tsBuffMaxCount = (DWORD)GET_SETTING_INT(appSet, L"TsBuffMaxCount", 5000);
+ 	s.writeBuffMaxCount = GET_SETTING_INT(appSet, L"WriteBuffMaxCount", -1);
++	s.freeFolderMinMB = GET_SETTING_INT(appSet, L"FreeFolderMinMB", 200);
+ 	s.epgCapBackBSBasic = GET_SETTING_INT(appSet, L"EpgCapBackBSBasicOnly", 1) != 0;
+ 	s.epgCapBackCS1Basic = GET_SETTING_INT(appSet, L"EpgCapBackCS1BasicOnly", 1) != 0;
+ 	s.epgCapBackCS2Basic = GET_SETTING_INT(appSet, L"EpgCapBackCS2BasicOnly", 1) != 0;
+diff --git a/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.h b/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.h
+index 522058af..25991129 100644
+--- a/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.h
++++ b/EpgDataCap_Bon/EpgDataCap_Bon/AppSetting.h
+@@ -33,6 +33,7 @@ struct APP_SETTING
+ 	int traceBonDriverLevel;
+ 	DWORD tsBuffMaxCount;
+ 	int writeBuffMaxCount;
++	int freeFolderMinMB;
+ 	bool epgCapBackBSBasic;
+ 	bool epgCapBackCS1Basic;
+ 	bool epgCapBackCS2Basic;
+diff --git a/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonDlg.cpp b/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonDlg.cpp
+index 2ca324dd..4aeee0c7 100644
+--- a/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonDlg.cpp
++++ b/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonDlg.cpp
+@@ -151,6 +151,7 @@ void CEpgDataCap_BonDlg::CheckAndSetDlgItemText(HWND wnd, int id, LPCWSTR text)
+ void CEpgDataCap_BonDlg::ReloadSetting()
+ {
+ 	this->setting = APP_SETTING::Load(GetModuleIniPath().c_str());
++	CWriteTSFile::SetFreeFolderMinBytes((this->setting.freeFolderMinMB > 0 ? (LONGLONG)this->setting.freeFolderMinMB : 0) * 1024 * 1024);
+ 
+ 	SetSaveDebugLog(this->setting.saveDebugLog);
+ 
+diff --git a/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonMin.cpp b/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonMin.cpp
+index 433b2e28..92e02c5a 100644
+--- a/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonMin.cpp
++++ b/EpgDataCap_Bon/EpgDataCap_Bon/EpgDataCap_BonMin.cpp
+@@ -126,6 +126,7 @@ void CEpgDataCap_BonMin::PrintStatusLog(LPCWSTR log)
+ void CEpgDataCap_BonMin::OnInit()
+ {
+ 	this->setting = APP_SETTING::Load(GetModuleIniPath().c_str());
++	CWriteTSFile::SetFreeFolderMinBytes((this->setting.freeFolderMinMB > 0 ? (LONGLONG)this->setting.freeFolderMinMB : 0) * 1024 * 1024);
+ 
+ 	for( int i = 0; ; i++ ){
+ 		this->recFolderList.push_back(GetRecFolderPath(i).native());
+-- 
+2.55.0
+

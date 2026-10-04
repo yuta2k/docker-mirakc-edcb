@@ -1,0 +1,152 @@
+From 20b9ec7e0548c4b9a51b733dfe467e0453b7c638 Mon Sep 17 00:00:00 2001
+From: yuta2k <yt_ahsa@outlook.com>
+Date: Sun, 4 Oct 2026 21:20:58 +0900
+Subject: [PATCH 1/2] Write_Default:
+ 録画ファイル作成時の容量確保を設定で無効化できるようにする
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Write_Default.so.ini の [SET] Prealloc で、録画開始時に予定サイズ(createSize)分を
+fallocate(Windows では SetEndOfFile)で確保するかどうかを選べるようにする。
+
+  0: 確保しない
+  1: 確保する(従来どおり。既定)
+  2: btrfs 上では確保しない(Linux のみ。それ以外の FS では確保する)
+
+未設定時の既定値は WRITE_DEFAULT_PREALLOC_DEFAULT マクロでビルド時に変更できる。
+
+btrfs で空き容量が少ない(未割り当て領域が無い)と、fallocate はデータ領域の予約のために
+他の書き込みの完了を待ち、数十秒から数分ブロックすることがある。その間 EpgDataCap_Bon は
+録画開始コマンドに応答できず、EpgTimerSrv の監視(40 秒)によって強制終了され、
+「録画開始処理に失敗しました」となる。この場合ファイル作成自体は成功しているので、
+空きのある別フォルダへの切り替えも行われない。
+
+また btrfs では、録画中にスナップショットが作られると確保済みの領域がスナップショット側に
+残り、以後の書き込みは CoW で別の領域に行われるため、確保分を二重に消費する。
+
+容量確保をしなくても、保存先フォルダの選択(予定サイズ + 最低空き容量)はこれまでどおり
+createSize を使って行われる。
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ Write_Default/Write_Default/WriteMain.cpp     | 24 ++++++++++++++++++-
+ Write_Default/Write_Default/WriteMain.h       |  8 +++++++
+ Write_Default/Write_Default/Write_Default.cpp |  7 ++++++
+ 3 files changed, 38 insertions(+), 1 deletion(-)
+
+diff --git a/Write_Default/Write_Default/WriteMain.cpp b/Write_Default/Write_Default/WriteMain.cpp
+index b9ee912a..a32949c4 100644
+--- a/Write_Default/Write_Default/WriteMain.cpp
++++ b/Write_Default/Write_Default/WriteMain.cpp
+@@ -10,11 +10,16 @@
+ #include <poll.h>
+ #include <signal.h>
+ #include <unistd.h>
++#ifdef __linux__
++#include <sys/vfs.h>
++#include <linux/magic.h>
++#endif
+ #endif
+ 
+ CWriteMain::CWriteMain(void)
+ {
+ 	this->writeBuffSize = 0;
++	this->prealloc = 1;
+ }
+ 
+ 
+@@ -23,6 +28,13 @@ CWriteMain::~CWriteMain(void)
+ 	Stop();
+ }
+ 
++void CWriteMain::SetPrealloc(
++	int mode
++	)
++{
++	this->prealloc = mode;
++}
++
+ void CWriteMain::SetBufferSize(
+ 	DWORD buffSize
+ 	)
+@@ -85,7 +97,17 @@ BOOL CWriteMain::Start(
+ 	}
+ 
+ 	//ディスクに容量を確保
+-	if( createSize > 0 ){
++	bool doPrealloc = this->prealloc != 0;
++#ifdef __linux__
++	if( this->prealloc == 2 ){
++		//btrfsでは確保が長時間ブロックし得るうえ、スナップショットがあると確保分が二重に消費される
++		struct statfs st;
++		if( fstatfs(fileno(this->file.get()), &st) == 0 && st.f_type == BTRFS_SUPER_MAGIC ){
++			doPrealloc = false;
++		}
++	}
++#endif
++	if( createSize > 0 && doPrealloc ){
+ 		if( my_fseek(this->file.get(), createSize, SEEK_SET) == 0 ){
+ #ifdef _WIN32
+ 			SetEndOfFile((HANDLE)_get_osfhandle(_fileno(this->file.get())));
+diff --git a/Write_Default/Write_Default/WriteMain.h b/Write_Default/Write_Default/WriteMain.h
+index d6f5bc3c..4511e069 100644
+--- a/Write_Default/Write_Default/WriteMain.h
++++ b/Write_Default/Write_Default/WriteMain.h
+@@ -15,6 +15,13 @@ public:
+ 		DWORD buffSize
+ 		);
+ 
++	//ファイル作成時の容量確保の方法を設定する
++	//引数：
++	// mode					[IN]0:確保しない、1:確保する、2:btrfs上では確保しない
++	void SetPrealloc(
++		int mode
++		);
++
+ 	//同時出力用のコマンドを設定する
+ 	//引数：
+ 	// cmd					[IN]コマンド
+@@ -72,6 +79,7 @@ protected:
+ 
+ 	vector<BYTE> writeBuff;
+ 	DWORD writeBuffSize;
++	int prealloc;
+ 	LONGLONG wrotePos;
+ 	recursive_mutex_ wroteLock;
+ 
+diff --git a/Write_Default/Write_Default/Write_Default.cpp b/Write_Default/Write_Default/Write_Default.cpp
+index 951cfd5f..200e617a 100644
+--- a/Write_Default/Write_Default/Write_Default.cpp
++++ b/Write_Default/Write_Default/Write_Default.cpp
+@@ -115,6 +115,11 @@ void WINAPI Setting(
+ // TRUE（成功）、FALSE（失敗）
+ //引数：
+ // id				[OUT]識別ID
++//Prealloc未設定時の既定値(0:確保しない、1:確保する、2:btrfs上では確保しない)
++#ifndef WRITE_DEFAULT_PREALLOC_DEFAULT
++#define WRITE_DEFAULT_PREALLOC_DEFAULT 1
++#endif
++
+ DLL_EXPORT
+ BOOL WINAPI CreateCtrl(
+ 	DWORD* id
+@@ -130,6 +135,7 @@ BOOL WINAPI CreateCtrl(
+ 	fs_path iniPath = GetModuleIniPath((void*)CreateCtrl);
+ #endif
+ 	DWORD buffSize = GetPrivateProfileInt(L"SET", L"Size", 770048, iniPath.c_str());
++	int prealloc = GetPrivateProfileInt(L"SET", L"Prealloc", WRITE_DEFAULT_PREALLOC_DEFAULT, iniPath.c_str());
+ 	DWORD teeSize = 0;
+ 	DWORD teeDelay = 0;
+ 	wstring teeCmd = GetPrivateProfileToString(L"SET", L"TeeCmd", L"", iniPath.c_str());
+@@ -141,6 +147,7 @@ BOOL WINAPI CreateCtrl(
+ 	try{
+ 		std::shared_ptr<CWriteMain> ptr = std::make_shared<CWriteMain>();
+ 		ptr->SetBufferSize(buffSize);
++		ptr->SetPrealloc(prealloc);
+ 		ptr->SetTeeCommand(teeCmd.c_str(), teeSize, teeDelay);
+ 		*id = g_instMng.push(ptr);
+ 	}catch( std::bad_alloc& ){
+-- 
+2.55.0
+

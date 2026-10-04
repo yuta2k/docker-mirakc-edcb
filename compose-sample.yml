@@ -29,6 +29,8 @@ services:
       #   - EDCB_CHECKOUT=COMMIT_HASH_HERE
       #   - BON_DRIVER_CHECKOUT=COMMIT_HASH_HERE
       #   - EMWUI_CHECKOUT=COMMIT_HASH_HERE
+      #   # Write_Default.so.ini の Prealloc の既定値 (Setup.md 参照)
+      #   - EDCB_PREALLOC_DEFAULT=2
     container_name: edcb
     restart: unless-stopped
     depends_on:
