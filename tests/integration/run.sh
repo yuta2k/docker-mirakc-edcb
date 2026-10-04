@@ -79,6 +79,13 @@ if [ "${#stale[@]}" -gt 0 ]; then
   echo "remove them (docker rm -f ...) or set EDCBTEST_PREFIX to another value" >&2
   exit 2
 fi
+mapfile -t stale < <(docker network ls --filter "name=^${PREFIX}-" --format '{{.Name}}')
+if [ "${#stale[@]}" -gt 0 ]; then
+  echo "networks named ${PREFIX}-* already exist:" >&2
+  printf '  %s\n' "${stale[@]}" >&2
+  echo "remove them (docker network rm ...) or set EDCBTEST_PREFIX to another value" >&2
+  exit 2
+fi
 
 # Owner for the log: the user who ran sudo, otherwise the owner of the repository
 if [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ]; then

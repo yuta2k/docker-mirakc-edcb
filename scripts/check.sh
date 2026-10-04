@@ -102,7 +102,8 @@ shell_scripts() {
   git ls-files -z --cached --others --exclude-standard |
     while IFS= read -r -d '' f; do
       [ -f "$f" ] || continue
-      head -n 1 "$f" | grep -Eq '^#![[:space:]]*/[^[:space:]]*/(env[[:space:]]+)?(sh|bash|dash|ksh)([[:space:]]|$)' &&
+      # a shebang, or the directive of a sourced file (tests/integration/lib.sh, phase*.sh)
+      head -n 1 "$f" | grep -Eq '^(#![[:space:]]*/[^[:space:]]*/(env[[:space:]]+)?(sh|bash|dash|ksh)([[:space:]]|$)|#[[:space:]]*shellcheck[[:space:]]+shell=)' &&
         printf '%s\0' "$f"
     done | sort -zu
 }
