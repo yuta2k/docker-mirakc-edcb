@@ -22,6 +22,12 @@ Linux 版 EDCB (EpgTimerSrv / EpgDataCap_Bon) を BonDriver_LinuxMirakc 経由�
 - **push、PR 作成、タグ作成、GHCR への公開、GitHub 上のリポジトリ作成は、ユーザの明示的な指示があるときだけ行う。**
 - `docs/v2/decisions.md` の方針を変える必要が出たら、実装を進めずユーザに確認する。
 
+## 検証
+
+- コミットの前に `scripts/check.sh` を通す(Docker デーモン不要。pytest、shellcheck、actionlint、compose、環境固有の情報の混入チェック)。
+- Docker が要る確認は `tests/integration/run.sh`(root で実行)。新しい確認はスクラッチに置かず、ここに足す。
+- コミットするファイルに、特定の環境の情報(ホームディレクトリのパス、ホスト名、プロジェクト名、LAN のアドレス)を書かない。`scripts/git-hooks/` のフックが止める。
+
 ## 慣例
 
 - ドキュメント(README、Setup、docs/)は日本語。Dockerfile やスクリプト内のコメントは英語。

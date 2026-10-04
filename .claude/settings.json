@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(scripts/check.sh)",
+      "Bash(scripts/check.sh *)",
+      "Bash(./scripts/check.sh)",
+      "Bash(./scripts/check.sh *)",
+      "Bash(scripts/install-tools.sh)",
+      "Bash(scripts/install-tools.sh *)",
+      "Bash(./scripts/install-tools.sh)",
+      "Bash(./scripts/install-tools.sh *)",
+      "Bash(scripts/check-local-info.sh)",
+      "Bash(scripts/check-local-info.sh *)",
+      "Bash(./scripts/check-local-info.sh)",
+      "Bash(./scripts/check-local-info.sh *)"
+    ]
+  }
+}
