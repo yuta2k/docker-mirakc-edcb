@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+import sys
+
+sys.path.insert(0, "/usr/local/lib/edcb-provision")
+
+from edcb_provision.cli import main  # noqa: E402
+
+sys.exit(main())

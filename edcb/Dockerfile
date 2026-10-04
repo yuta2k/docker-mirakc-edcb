@@ -81,6 +81,17 @@ RUN case "$EDCB_PREALLOC_DEFAULT" in 0|1|2) ;; \
   CPPFLAGS="-DWRITE_DEFAULT_PREALLOC_DEFAULT=$EDCB_PREALLOC_DEFAULT" make && \
   make extra
 
+# WebUI files installed into the volume at start-up (see edcb_provision/httppublic.py):
+# the files "make setup_ini" would copy from EDCB, and EMWUI.
+# legacy/util.lua is patched so that "edcbctl allow-setting" works without a restart.
+COPY --chmod=755 build/patch-legacy-util.sh /usr/local/bin/patch-legacy-util
+RUN mkdir -p /app/share/HttpPublic /app/share/Setting && \
+  cp -R EDCB/ini/HttpPublic/index.html EDCB/ini/HttpPublic/favicon.ico EDCB/ini/HttpPublic/legacy \
+    /app/share/HttpPublic/ && \
+  cp -R EDCB_Material_WebUI/HttpPublic/. /app/share/HttpPublic/ && \
+  cp -R EDCB_Material_WebUI/Setting/. /app/share/Setting/ && \
+  patch-legacy-util /app/share/HttpPublic/legacy/util.lua
+
 FROM ${ARCH}ubuntu:24.04
 ARG EDCB_REPO
 ARG EDCB_REF
@@ -99,13 +110,10 @@ LABEL io.github.yuta2k.docker-mirakc-edcb.edcb.repo="$EDCB_REPO" \
   io.github.yuta2k.docker-mirakc-edcb.emwui.repo="$EMWUI_REPO" \
   io.github.yuta2k.docker-mirakc-edcb.emwui.commit="$EMWUI_COMMIT"
 
-ENV MIRAKC_ADDRESS=
-ENV MIRAKC_PORT=
-ENV UMASK=
+ENV TZ=Asia/Tokyo
 
-# copy EDCB_Material_WebUI
-# (setup on entrypoint.sh)
-COPY --from=build /app/EDCB_Material_WebUI /usr/local/src/EDCB_Material_WebUI
+# WebUI files and EMWUI's initial Setting/ files (copied into the volume on start-up)
+COPY --from=build /app/share /usr/local/share/edcb
 
 # copy Lua modules for EDCB
 RUN mkdir -p /usr/local/lib/lua/5.2
@@ -119,7 +127,12 @@ RUN apt-get update && \
   apt-get install -y --no-install-recommends \
     make \
     liblua5.2-0 \
-    ffmpeg && \
+    ffmpeg \
+    # provisioning (edcbctl), health check
+    python3 \
+    # ps and pidwait in the entrypoint
+    procps \
+    tzdata && \
 \
   # install EDCB
   ( \
@@ -151,17 +164,21 @@ RUN apt-get update && \
 # after created /usr/local/lib/edcb/ by EDCB installation
 COPY --from=build /app/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so /usr/local/lib/edcb/BonDriver_LinuxMirakc.so
 COPY --from=build /app/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini_sample /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
+# (written by the entrypoint, which runs as root)
 RUN ln -s /usr/local/lib/edcb/BonDriver_LinuxMirakc.so /usr/local/lib/edcb/BonDriver_LinuxMirakc_S.so && \
   ln -s /usr/local/lib/edcb/BonDriver_LinuxMirakc.so /usr/local/lib/edcb/BonDriver_LinuxMirakc_T.so && \
-  # allow generate sed temporary file by other user (on entrypoint.sh)
-  chmod 777 /var/local/BonDriver_LinuxMirakc && \
-  chmod 666 /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini && \
   ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc.so.ini && \
   ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc_S.so.ini && \
   ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc_T.so.ini
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# entrypoint, edcbctl and the provisioning (Python, standard library only)
+COPY rootfs/ /
+RUN python3 -m compileall -q /usr/local/lib/edcb-provision
 
-EXPOSE 4510 5510
+# EpgTimerSrv is running; if HTTP is enabled, the first HttpPort accepts connections
+HEALTHCHECK --interval=1m --timeout=15s --start-period=2m --retries=3 \
+  CMD ["env", "PYTHONPATH=/usr/local/lib/edcb-provision", "python3", "-m", "edcb_provision.healthcheck"]
+
+# 4510: TCP (EpgTimerNW etc.), 5510: HTTP, 5511: HTTPS, 5520 / 5521: EMWUI's SSE (HTTP / HTTPS)
+EXPOSE 4510 5510 5511 5520 5521
 ENTRYPOINT ["/entrypoint.sh"]
