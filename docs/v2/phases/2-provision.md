@@ -220,7 +220,7 @@ Docker が要る確認は、ユーザに sudo でスクリプトを 2 回実行�
 
 - HTTPS で `/E3/` は開けたが、リモート視聴が読み込み中のまま進まなかった。トランスコードのログ(`Setting/HttpPublic.ini [XCODE] LOG=1`)では、ffmpeg への入力が空だった。
 - 切り分けの結果、edcb 側ではなく mirakc 側の復号が原因だった。`decode=0` のストリームは流れるが、`decode=1` は 404 になり、`arib-b25-stream-test` が `B_CAS_CARD::init() : code=-3` で失敗していた。Debian の pcscd が polkit 有効でビルドされているため(`facts.md` の U14)。
-- `mirakc/Dockerfile` の起動コマンドを `pcscd --disable-polkit` に直した(フェーズ 1 から引き継いだ不具合の修正。別のコミット)。動いているコンテナの中で pcscd を `--disable-polkit` 付きで起動し直したところ、復号できるようになった。イメージを作り直しての確認はまだ。
+- `mirakc/Dockerfile` の起動コマンドを `pcscd --disable-polkit` に直した(フェーズ 1 から引き継いだ不具合の修正。別のコミット)。動いているコンテナの中で pcscd を `--disable-polkit` 付きで起動し直したところ、復号できるようになった。修正したイメージで mirakc を作り直したあとも、TS-Live! で再生できることをユーザが確認した。
 - フェーズ 5 で mirakc の entrypoint をスクリプトにするときも、このオプションを引き継ぐこと。
 - 気づいた点: 視聴や録画の最中、EpgDataCap_Bon が状態の行(`Sig:27.26 D:0 S:0 sp:0 ch:7 Rec`)を改行なしで標準出力に書くので、`docker compose logs` でほかの行とつながって見える。動作には影響しない。EpgDataCap_Bon の標準出力を捨てるかどうかは、あとのフェーズで判断する。
 
@@ -229,7 +229,7 @@ Docker が要る確認は、ユーザに sudo でスクリプトを 2 回実行�
 | 確認 | 結果 |
 |---|---|
 | HTTPS で `/E3/` を開く(自己署名の証明書、コンテナの 5511 をホストの別の番号に割り当て) | 開けた(ブラウザは証明書の警告を出す) |
-| HTTPS で TS-Live! のライブ視聴 | **再生できた**。Firefox と Chrome、地上波と BS で確認。mirakc の pcscd は、コンテナの中で `--disable-polkit` 付きで起動し直した状態 |
+| HTTPS で TS-Live! のライブ視聴 | **再生できた**。Firefox と Chrome、地上波と BS で確認。mirakc の pcscd は、最初はコンテナの中で `--disable-polkit` 付きで起動し直した状態で、その後、修正したイメージでも確認 |
 | HTTPS で HLS(`432p/h264/ffmpeg`)のライブ視聴 | **再生できない**(未解決。下記) |
 | 録画中の `docker compose stop edcb` | **2.2 秒で停止**。EpgTimerSrv と EpgDataCap_Bon がそれぞれ `Received signal 15` を出して正常に終了し、entrypoint の `stopped` が出た。録画ファイル(約 36 MB、約 19 秒分)は大きさが 188 バイトの整数倍で、同期バイトの欠けとスクランブルのままのパケットは 0。ffmpeg で最後までデコードできた(先頭のエラーが数件だけ) |
 
@@ -237,7 +237,7 @@ HLS(`432p/h264/ffmpeg`)の症状:
 
 - ブラウザは読み込み中のまま。`/api/mp4init` と `/api/segment` が 404 を返す(Firefox、Chrome とも)。
 - トランスコードのログでは、ffmpeg は約 17 秒分を変換したあと、出力先が閉じて終了した(`Broken pipe`)。入力に AAC と MPEG-2 のデコードエラーがあり、出力の音声は約 8 kB しか無かった。tsmemseg(`-4`、fMP4)が初期化データを作れず、ブラウザがあきらめた、と見ている。
-- v1 での利用者の視聴は、HTTP と例外の設定を使った TS-Live! だった。HLS 方式が v1 で動いていたかは確かめていない。v2 で壊れたのか、もともと動かないのかは未確認。次のフェーズ以降の課題とする(切り分けの候補: mirakc から取った 10 秒の TS を、同じ `tsreadex | ffmpeg | tsmemseg -4` に通して、初期化データができるかを見る。別のチャンネル、`USE_MP4_HLS=0`)。
+- v1 での利用者の視聴は、HTTP と例外の設定を使った TS-Live! だった。HLS 方式が v1 で動いていたかは確かめていない。v2 で壊れたのか、もともと動かないのかは未確認。フェーズ 5 の作業 3 に移した(フェーズ 5 の `ffmpeg-qsv` の実機確認も HLS 方式で行うため)。
 
 ### 次のフェーズへの申し送り
 
