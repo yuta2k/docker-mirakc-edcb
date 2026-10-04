@@ -1,0 +1,49 @@
+# 全員共通の定義です。このファイルは編集しないでください(git pull で更新されます)。
+# チューナーのデバイス、録画先、ポートの変更など、環境ごとの設定は compose.override.yml に書きます。
+# compose.override-sample.yml を compose.override.yml にコピーして編集してください。
+#
+# コンテナ名とボリューム名は、Compose のプロジェクト名(既定ではこのフォルダの名前)から決まります。
+# 同じ名前のフォルダの構成を同じホストで 2 つ動かす場合は、片方の .env に
+# COMPOSE_PROJECT_NAME=<別の名前> を書いてください。
+
+services:
+  mirakc:
+    build:
+      context: mirakc
+    init: true
+    restart: unless-stopped
+    devices:
+      - /dev/bus:/dev/bus
+    volumes:
+      - mirakc-epg:/var/lib/mirakc/epg
+      # ファイルが無いときに、Docker が同名のディレクトリを作らずエラーにする
+      - type: bind
+        source: ./mirakc/config.yml
+        target: /etc/mirakc/config.yml
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      - TZ=Asia/Tokyo
+      - RUST_LOG=info
+
+  edcb:
+    build:
+      context: edcb
+    restart: unless-stopped
+    depends_on:
+      mirakc:
+        condition: service_started
+        required: false
+    ports:
+      - 4510:4510
+      - 5510:5510
+    volumes:
+      - ./edcb/ini:/var/local/edcb
+    environment:
+      - TZ=Asia/Tokyo
+      - MIRAKC_ADDRESS=mirakc
+      - MIRAKC_PORT=40772
+
+volumes:
+  mirakc-epg:

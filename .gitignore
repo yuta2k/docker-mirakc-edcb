@@ -1,6 +1,10 @@
 .DS_Store
 edcb/ini/*
+!edcb/ini/.gitkeep
+edcb/overrides/*
 
-compose.yml
 .env
+compose.override.yml
+compose.yml.v1-backup
+edcb.env
 mirakc/config.yml

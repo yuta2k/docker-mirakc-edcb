@@ -1,7 +1,7 @@
 # docker-mirakc-edcb
 
 * [mirakc](https://github.com/mirakc/mirakc)
-* [tkntrec 版 EDCB](https://github.com/tkntrec/EDCB)
+* [xtne6f 版 EDCB](https://github.com/xtne6f/EDCB)
 * [EDCB_Material_WebUI](https://github.com/EMWUI/EDCB_Material_WebUI)
 * [BonDriver_LinuxMirakc](https://github.com/matching/BonDriver_LinuxMirakc)
 
@@ -39,13 +39,17 @@ EDCB の設定ファイルには介入しないため、セットアップに手
 ### 更新方法
 
 ```
-# docker compose build --no-cache
+# git pull
+# docker compose build
 # docker compose up -d
 ```
 
+EDCB などの上流のバージョンは `edcb/Dockerfile` の `ARG` の既定値で固定しています。  
+`git pull` でこのリポジトリを更新すると、固定したバージョンも更新されます。
+
 ### EDCB へのパッチ
 
-`edcb/patches/` 下のパッチを tkntrec 版 EDCB に当ててビルドしています。
+`edcb/patches/edcb/` 下のパッチを EDCB に当ててビルドしています。
 
 * `0001-write-default-prealloc-option.patch`  
   録画開始時の容量確保(fallocate)を設定で無効化できるようにします。このイメージでは btrfs 上では確保しないのが既定です
@@ -54,15 +58,15 @@ EDCB の設定ファイルには介入しないため、セットアップに手
 
 設定方法は [Setup.md の「録画保存先が btrfs の場合」](Setup.md#録画保存先が-btrfs-の場合) を参照してください。
 
-パッチは tkntrec 版 EDCB の `622a1d3a` で確認しています。  
-上流の変更でパッチが当たらなくなった場合はビルドが失敗するので、`compose.yml` の `EDCB_CHECKOUT` でコミットを指定してください。  
-なお、以前のバージョンではビルド時に `EDCB_CHECKOUT` などの指定が反映されていませんでした。
-すでに `EDCB_CHECKOUT` で古いコミットを指定している場合、今後はそのコミットが使われるため、パッチが当たらずビルドが失敗することがあります。
-その場合は指定を外すか、パッチが当たるコミットに変更してください。
+パッチは `edcb/Dockerfile` で固定した EDCB のバージョンに当たることを確認しています。パッチが当たらない場合はビルドが失敗します。
+
+以前のビルド引数 `EDCB_CHECKOUT`、`BON_DRIVER_CHECKOUT`、`EMWUI_CHECKOUT` は廃止しました。  
+指定していても無視されるので、`compose.yml` などから削除してください。  
+別のバージョンでビルドしたい場合は、ビルド引数 `EDCB_REF`(タグ)と `EDCB_COMMIT`(そのタグのコミット)、`BON_DRIVER_COMMIT`、`EMWUI_COMMIT` を指定します。
 
 ### 外部の mirakc・Mirakurun を使用する場合
 
-`compose.yml` を改変し EDCB のみを実行する場合など。  
+`compose.override.yml` で同梱の mirakc を無効にし、EDCB のみを実行する場合など(`compose.override-sample.yml` 参照)。  
 edcb コンテナの環境変数 `MIRAKC_ADDRESS` で mirakc または Mirakurun のアドレスを指定できます。
 
 IP アドレスで指定する場合は、特に問題ありません。
