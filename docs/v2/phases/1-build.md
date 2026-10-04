@@ -55,14 +55,15 @@
 
 ## 受け入れ条件
 
-- [ ] `docker build edcb/` が、引数なしで成功する
-- [ ] ビルドログで、EDCB が `EDCB_COMMIT` のコミットであること、パッチ 2 本が当たったことが確認できる
-- [ ] `EDCB_COMMIT` をわざと別の値にすると、ビルドが失敗する
-- [ ] パッチをわざと壊すと、ビルドが失敗する
-- [ ] ビルドしたイメージを一時ディレクトリの構成で起動し、`/legacy/` と `/EMWUI/` が HTTP 200 を返す(U2)。ACL は一時構成の `EpgTimerSrv.ini` で調整する
-- [ ] `docker compose config` が、`compose.yml` 単体でも、`compose.override-sample.yml` を override として重ねても成功する
-- [ ] `docker compose config` の結果に、固定のコンテナ名とボリューム名が現れない。`COMPOSE_PROJECT_NAME` を変えると、コンテナ名とボリューム名がそれに従って変わる
-- [ ] 3 つのワークフローが `actionlint`(使えれば)を通る
+- [x] `docker build edcb/` が、引数なしで成功する
+- [x] ビルドログで、EDCB が `EDCB_COMMIT` のコミットであること、パッチ 2 本が当たったことが確認できる
+- [x] `EDCB_COMMIT` をわざと別の値にすると、ビルドが失敗する
+- [x] パッチをわざと壊すと、ビルドが失敗する
+- [x] ビルドしたイメージを一時ディレクトリの構成で起動し、`/legacy/` と `/EMWUI/` が HTTP 200 を返す(U2)。ACL は一時構成の `EpgTimerSrv.ini` で調整する
+  - `/EMWUI/` は上流で `/E3/` に変わったため、`/E3/` で確認した(実施記録を参照)
+- [x] `docker compose config` が、`compose.yml` 単体でも、`compose.override-sample.yml` を override として重ねても成功する
+- [x] `docker compose config` の結果に、固定のコンテナ名とボリューム名が現れない。`COMPOSE_PROJECT_NAME` を変えると、コンテナ名とボリューム名がそれに従って変わる
+- [x] 3 つのワークフローが `actionlint`(使えれば)を通る
 
 ## 検証
 
@@ -84,4 +85,111 @@ docker rm -f edcbtest
 
 ## 実施記録
 
-(着手したエージェントが、行ったこと、設計から変えた点、次のフェーズへの申し送りを書く)
+2026-10-04〜05 実施。作業ブランチ `v2-phase-1-build`。
+
+### 行ったこと
+
+**上流の固定(`edcb/Dockerfile`、`mirakc/Dockerfile`)**
+
+- EDCB の取得元を `xtne6f/EDCB` に変えた。ARG の既定値(Dockerfile 冒頭)だけで固定している。
+  - `EDCB_REPO` / `EDCB_REF` / `EDCB_COMMIT`
+  - `BON_DRIVER_REPO` / `BON_DRIVER_COMMIT`
+  - `EMWUI_REPO` / `EMWUI_COMMIT`
+  - `LUA_REPO` / `LUA_COMMIT`、`LUA_ZLIB_REPO` / `LUA_ZLIB_COMMIT`(ブランチの tarball をやめて、コミットで固定)
+- 取得は `edcb/build/fetch-source.sh` にまとめた。`git fetch --depth 1` で ref(タグ)かコミットを取り、`git rev-parse HEAD` が `*_COMMIT` と一致しなければ失敗する。`*_COMMIT` は 40 桁の SHA-1 でないと失敗する。サブモジュール(BonDriver の picojson)は、記録されたコミットで取る。
+- 最終イメージに、上流のバージョンをラベルとして入れた(`io.github.yuta2k.docker-mirakc-edcb.{edcb,bondriver,emwui}.{repo,ref,commit}`)。
+- `mirakc/Dockerfile` の libaribb25 を `LIBARIBB25_REPO` / `LIBARIBB25_COMMIT` で固定した。ほかは変えていない。
+- 廃止したビルド引数: `EDCB_CHECKOUT`、`BON_DRIVER_CHECKOUT`、`EMWUI_CHECKOUT`。指定されても Docker の警告が出るだけで、無視される。Readme に、廃止したことと代わりの引数を書いた。
+
+**パッチ**
+
+- `edcb/patches/*.patch` を `edcb/patches/edcb/` に移した。
+- `git -c user.name=... -c user.email=... am --3way --keep-cr` で当てる。パッチが 1 つも無ければ失敗する。当てたあとに `git log --oneline <EDCB_COMMIT>..HEAD` をログに出す。
+- `--keep-cr` が必要(EDCB のソースは CRLF。`facts.md` の F1 に追記)。
+- `EDCB_PREALLOC_DEFAULT` と `CPPFLAGS` はそのまま。
+
+**compose**
+
+- git 管理する `compose.yml` と `compose.override-sample.yml` を作り、`compose-sample.yml` を削除した。
+  - `container_name` とボリュームの `name:` は書いていない。
+  - 環境変数は従来どおり(`MIRAKC_ADDRESS` / `MIRAKC_PORT`)。`env_file`、`overrides` のマウント、ポートの追加はしていない。
+  - `design.md` の 2 章から、仕様を変えない範囲で次を先に入れた: `depends_on` の `required: false`、`mirakc/config.yml` の長い書式のマウント(`create_host_path: false`)。
+  - `user:`、`group_add`、`/dev/dri`、ビルド引数、mirakc の無効化、外部 mirakc の例は `compose.override-sample.yml` に置いた。
+- `.gitignore`: `compose.yml` を外し、`compose.override.yml`、`edcb.env`、`edcb/overrides/*`、`compose.yml.v1-backup` を追加した。
+- 利用者の未追跡の `compose.yml` の扱いはユーザに確認した。答えは「override に書き換えて移す」。
+  - 元のファイルは `compose.yml.v1-backup` として残した(git 管理外)。
+  - 差分だけの `compose.override.yml` を作った(`ports: !override` など)。
+  - `docker compose config` で、新旧の実効の構成を比べた。違いは意図した 3 点だけ: `required: false`、`create_host_path: false`、`driver: local` の省略(既定値なので同じ意味)。
+  - 利用者の構成を変えないよう、override には旧来の `container_name` とボリューム名 `mirakc_epg` を残した。削除を勧めることはユーザに伝えた。
+
+**CI(`.github/workflows/`)**
+
+- `.github/scripts/smoke-test.sh`: `EpgTimerSrv -h` / `EpgDataCap_Bon -h` を実行する(終了コード 2 と `Ver.` の表示を成功とみなす)。あわせて、上流のバージョンのラベルを表示する。3 つのワークフローで共用する。
+- `build.yml`: PR と `main` / `v2` への push、手動実行で動く。
+  - edcb は amd64 と arm64 の両方をビルドし、スモークテストを行う。arm64 は QEMU ではなくネイティブランナー(`ubuntu-24.04-arm`、public リポジトリは無料)を使う。U1 を確かめるため。
+  - mirakc は amd64 のビルドだけ。libaribb25 の固定を確かめるため。
+- `release.yml`: `v*` タグで動く。
+  - amd64 / arm64 をそれぞれのネイティブランナーでビルドし、スモークテストを通してから digest で push する。そのあと、マニフェストリストにまとめる。
+  - タグは `<バージョン>`、`<メジャー.マイナー>`、`latest`(metadata-action の既定で、プレリリースには付かない)。
+  - イメージ名は `ghcr.io/<owner>/<repo>/edcb`(このリポジトリなら `ghcr.io/yuta2k/docker-mirakc-edcb/edcb`)。
+- `upstream-check.yml`: 毎週月曜 03:00 JST と手動実行で動く。
+  - `git ls-remote` で `work-plus-s-*` の最新タグを調べる(注釈付きタグなら `^{}` のコミットを使う)。
+  - 新しければ `EDCB_REF` / `EDCB_COMMIT` を書き換えて、amd64 のビルドとスモークテストを行う。成功したら PR を、失敗したら Issue を作る(同じタイトルの Issue が開いていればコメントを足す)。
+  - ブランチ `upstream/edcb-<タグ>` が既にあれば何もしない。
+  - トークンは、`UPSTREAM_CHECK_TOKEN` シークレットがあればそれを、無ければ `GITHUB_TOKEN` を使う。
+
+**ドキュメント(最小限)**
+
+- Readme:
+  - EDCB のリンクを xtne6f 版に変えた。
+  - 更新方法とパッチの節を、固定方式に合わせて直した。廃止したビルド引数の案内も書いた。
+  - EMWUI の URL を `/E3/` に直した。
+- Setup.md:
+  - `compose-sample.yml` を `compose.override-sample.yml` / `compose.override.yml` に直した。
+  - 同じ名前のフォルダの構成を 2 つ置く場合の `COMPOSE_PROJECT_NAME` の注意を書いた。
+  - パッチのパスを直した。
+- `facts.md`: 固定値(lua、lua-zlib、libaribb25 を追加)、F1(`--keep-cr`、`-h`)、F6(E3)、U1、U2、U8 を更新した。
+- `phases/2-provision.md`: HTTPS の確認手順の URL を `/E3/` に直した。
+
+### 検証結果
+
+Docker デーモンが要る確認は、ユーザに sudo でスクリプトを実行してもらい、ログを読んで判断した(Docker 29.8.1、Compose 5.5.1)。
+
+| 確認 | 結果 |
+|---|---|
+| `docker build edcb/`(引数なし) | 成功 |
+| ビルドログ | `Fetched https://github.com/xtne6f/EDCB.git work-plus-s-260904 at ebf50c73…`、`Applying:` が 2 行、`Applied 2 patch(es) on top of ebf50c73…` に続いて 2 コミットが表示された |
+| `EDCB_COMMIT=f0a082f…`(別のタグのコミット) | 失敗(rc=1)。`ERROR: … work-plus-s-260904 is at ebf50c7…, expected f0a082f…` |
+| パッチ 0002 の文脈行を壊す | 失敗。`git am` が `patch does not apply` で exit 128 |
+| スモークテスト | 両方 `Ver. work+s-260904`、終了コード 2。ラベル 7 つを確認 |
+| 一時構成で起動(`-p 127.0.0.1:15510:5510`、ACL を `+0.0.0.0/0` に変えて再起動) | `/` 200、`/legacy/` 200、`/E3/` 200、`/E3/index.html` 200、`/EMWUI/` 404 |
+| `docker compose config`(`compose.yml` 単体 / sample を重ねる) | どちらも成功。出力に `container_name` は無い |
+| `COMPOSE_PROJECT_NAME` を変える | `config` で、ボリュームとネットワークが `proja_mirakc-epg` / `projb_mirakc-epg` のように変わる。`docker compose --dry-run create` で、コンテナ名が `edcbtest-a-edcb-1` / `edcbtest-b-edcb-1` になることを確認。ドライランでは何も作られていないことも確認した |
+| `docker build mirakc/` | 成功(`Fetched …libaribb25.git at dc1d96a…`) |
+| actionlint 1.7.12(shellcheck 0.11.0 と組み合わせて実行) | 3 ファイルともエラー 0。`fetch-source.sh` と `smoke-test.sh` も shellcheck を通る |
+| U8(フェーズ 2 の先取り) | `libssl.so.3`、`libcrypto.so.3` がある |
+
+### 満たせなかった・読み替えた条件
+
+- **`/EMWUI/` → `/E3/`**: EMWUI は 2026-07-17 に旧 `EMWUI/` を削除し、E3(EMWUI 3)に移行していた(`facts.md` の F6)。固定したコミットにも `/EMWUI/` は無いので、`/E3/` で確認した。上流の構成の変化であり、今回の変更が原因ではない。
+- **U1(arm64)は未確認**: このホストには QEMU の binfmt が無い。ホスト全体に効く設定なので入れていない。CI のネイティブ arm64 ジョブで確認できるが、push が必要なので実行していない。そのため `release.yml` は amd64 / arm64 のままにしてある。CI で arm64 が失敗したら、`build.yml` と `release.yml` から arm64 を外す。
+
+### 設計から変えた点・実装時に決めた点
+
+- `compose.yml` に `image:`(GHCR)を書いていない。まだ公開していないので、書くと pull のエラーになる。公開の判断が済んだフェーズで足す。
+- release のイメージ名を `ghcr.io/<owner>/<repo>/edcb` にした(設計では未指定)。
+- `build.yml` に arm64 と mirakc のジョブを足した(設計では amd64 の edcb のみ)。
+- libaribb25 は浅い取得のため、`git describe --always --tags` によるバージョン文字列が、タグ名ではなく短いハッシュになる。動作には影響しない。
+
+### 次のフェーズへの申し送り
+
+- **CompatFlags**: xtne6f 版は `[SET] CompatFlags` を読み、既定値は 0。フェーズ 2 で `CompatFlags=4095` の既定値を書くまでは、tkntrec 版の EpgTimerNW との互換が失われる。v2 は全フェーズを入れてから出すので、利用者への影響は無い。ただし、この開発環境でフェーズ 1 のイメージを使うときは注意。
+- **E3**:
+  - EMWUI の `Setting/`(`HttpPublic.ini`、`XCODE_OPTIONS.lua`)の置き場所は従来どおり。`api/util.lua` の `ALLOW_SETTING` / `ALLOW_SETTING_LIST` も E3 で変わっていない。
+  - 既存のボリュームには旧 `HttpPublic/EMWUI/` が残る。フェーズ 2 で `HttpPublic` をイメージ側へ移すときの案内(6 章)に含めること。
+  - README の推奨設定や SSE 用ポートの記述は E3 の README に基づいている。
+- **U3**: EMWUI の Lua はボリュームの `HttpPublic/api/` 以下にある(`xcode`、`view`、`Settings` など)。書き込み先の調査対象に含めること。`api/Settings` は `Setting/HttpPublic.ini` に `WritePrivateProfile` で書く。
+- **スモークテスト**: フェーズ 2 で pytest を足すときは `build.yml` の edcb ジョブに追加する。`smoke-test.sh` は、ラベルが 1 つも無いと失敗する。
+- **定期チェックを有効にする前に**: 自動 PR で CI を動かすには、`UPSTREAM_CHECK_TOKEN`(contents / pull-requests の書き込み権限)を登録する必要がある(README の「ユーザの作業が必要なもの」)。定期実行は、このワークフローが既定ブランチ(`main`)に入るまで動かない。
+- **この開発環境**: `compose.override.yml` に旧来の `container_name`(`edcb-4ts`、`mirakc`)とボリューム名 `mirakc_epg` を残している。D5 の確認をこの環境でするなら、これらを消すこと。次に `up` すると、構成が変わったためコンテナが作り直される。
+

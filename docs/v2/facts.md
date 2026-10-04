@@ -8,9 +8,12 @@
 |---|---|---|
 | EDCB | `xtne6f/EDCB` | タグ `work-plus-s-260904` = `ebf50c730ccf8c1732e0bd8a4e2a3417a94d9b2b` |
 | BonDriver | `matching/BonDriver_LinuxMirakc` | `cfbefc6d21dab4009db5f124984c1b720b76d869`(2024-10-14、以降更新なし) |
-| EMWUI | `EMWUI/EDCB_Material_WebUI` | `4e5b5c865a481cc8f443d6d468ee9571a8bfcf20`(2026-10-02 時点の HEAD) |
+| EMWUI | `EMWUI/EDCB_Material_WebUI` | `4e5b5c865a481cc8f443d6d468ee9571a8bfcf20`(2026-10-02 時点の HEAD。既定ブランチ `E3`) |
+| lua | `xtne6f/lua` | `00e941f334ea08557a8c0c428203456387d54eb3`(ブランチ `v5.2-luabinaries` の 2026-10-04 時点の HEAD) |
+| lua-zlib | `xtne6f/lua-zlib` | `dc3ea17156ad727398ab39501d3cd03e32324165`(ブランチ `v0.5-lua52` の 2026-10-04 時点の HEAD) |
+| libaribb25 | `tsukumijima/libaribb25` | `dc1d96a90ea554d8997b238fd6712eccf553cdb3`(2026-10-04 時点の HEAD。mirakc イメージ用) |
 
-EMWUI の上記コミットと EDCB `260904` の組み合わせは未検証です。これまでは tkntrec 版 `260921`(xtne6f `260904` を含む)とビルド時点の EMWUI HEAD で動いていました。
+EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` と `/E3/` が HTTP 200 を返すことを確認した(フェーズ 1、U2)。
 
 ## 確認済み
 
@@ -21,6 +24,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせは未検証で�
 - 残りはバージョン文字列と、Windows 専用の設定ダイアログ(`SettingDlg.cpp` は Makefile で Windows のときだけビルド対象)。
 - Legacy WebUI では `CompatFlags` は閲覧のみ(`setting_other.html`)。ini に書く必要がある。
 - 現在の btrfs パッチ 2 本は `work-plus-s-260904` に `git apply --check` で当たる。
+- EDCB のソースは改行が CRLF。`git am` は既定で行末の CR を取り除くため、`--keep-cr` を付けないとパッチが当たらない(フェーズ 1 で確認。付けると `warning: quoted CRLF detected` が出るが、適用には影響しない)。
+- `EpgTimerSrv -h` と `EpgDataCap_Bon -h` は `Ver. work+s-260904` を表示し、終了コード 2 で終わる(`-h` の処理が `return 2`)。
 
 ### F2. 上流の歴史改変
 
@@ -65,6 +70,9 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせは未検証で�
 
 ### F6. EMWUI
 
+- **2026-04-19 に「E3」(EMWUI 3)がベータ公開され(コミット `1c95d4c`)、2026-07-17 に旧 `HttpPublic/EMWUI/` が削除された(コミット `a7aeb2d`)。** 現在の既定ブランチは `E3`。WebUI のパスは `/E3/`。旧版はブランチ `EMWUI` に残っている。
+- これまでのイメージはビルド時点の HEAD を使っていたので、既定ブランチが `E3` になってからビルドした利用者は、すでに E3 を使っている。ボリュームには `cp -ru` で旧 `EMWUI/` と `E3/` が並んで残る(この開発環境の `edcb/ini/HttpPublic` で確認)。既定ブランチが切り替わった日付は未確認。
+- 設定変更の許可の処理は、E3 でも `HttpPublic/api/util.lua` にある(固定したコミットで確認)。
 - README に「PWA や TS-Live! に SSL/TLS による通信が必須なため、HTTPS での運用を前提」とある。
 - 視聴ページは `Cross-Origin-Embedder-Policy: require-corp` と `Cross-Origin-Opener-Policy: same-origin` を返し、TS-Live! は `SharedArrayBuffer` と WebGPU を使う。HTTP + LAN の IP アドレスでは動かない。
 - README の推奨設定: `HttpPort=5510,5520,5511s,5521s`、`HttpNumThreads=50`(SSE が表示ごとにスレッドを 1 つ占有するため)。
@@ -110,14 +118,14 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせは未検証で�
 
 | # | 内容 | 確認するフェーズ | 確認方法 |
 |---|---|---|---|
-| U1 | EDCB が arm64 でビルドできるか | 1 | CI で試す。失敗したら amd64 のみにして報告 |
-| U2 | EMWUI の固定コミットと EDCB `260904` の組み合わせで WebUI が動くか | 1 | コンテナを起動し、`/EMWUI/` と `/legacy/` が 200 を返すか |
+| U1 | EDCB が arm64 でビルドできるか | 1 | **未確認のまま**。このホストには QEMU が無い。`build.yml` にネイティブ arm64 ランナー(`ubuntu-24.04-arm`)のジョブを入れたので、push して CI が動けば分かる。ソースを読んだ範囲では、Linux 向けのビルドに x86 に依存する箇所は見当たらない |
+| ~~U2~~ | ~~EMWUI の固定コミットと EDCB `260904` の組み合わせで WebUI が動くか~~ | 1 | **確認済み**(フェーズ 1)。`/legacy/` と `/E3/` が 200。`/EMWUI/` は上流で削除された(F6) |
 | U3 | `HttpPublic` 配下に実行時に書き込む処理があるか | 2 | `HttpPublic` 以下の Lua で書き込み先を調べる(`legacy/view.lua` と `xcode.lua` がログを書いている。書き込み先のパスを確認) |
 | U4 | `HttpAccessControlList` の書式(IPv6、IPv4 射影アドレスの扱い) | 2 | `Document/Readme_Mod.txt` の該当節を読む |
 | U5 | EDCB の ini のキー名は大文字小文字を区別するか | 2 | `Common/PathUtil.cpp` の `GetPrivateProfile*` の Linux 実装を読む |
 | U6 | SIGTERM を受けた EpgTimerSrv / EpgDataCap_Bon が録画ファイルを正常に閉じるか、所要時間 | 2 | 終了処理のソースを読む。`stop_grace_period` の値の根拠にする |
 | U7 | Linux 版の `ssl_cert.pem` の置き場所(`/var/local/edcb` か) | 2 | `civetweb` の初期化部分で証明書のパスを組み立てている箇所を読む |
-| U8 | イメージに `libssl.so.3` が入っているか | 2 | ビルドしたイメージで `ldconfig -p \| grep libssl` |
+| ~~U8~~ | ~~イメージに `libssl.so.3` が入っているか~~ | 2 | **確認済み**(フェーズ 1 のビルドで確認)。`libssl.so.3` と `libcrypto.so.3` が `/lib/x86_64-linux-gnu/` にある |
 | U9 | Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か | 3 | Mirakurun の API 定義を読む |
 | U10 | 切断時に EDCB 側が再選局するか | 3 | `BonCtrl` の受信監視部分を読む。しないなら BonDriver 側に再接続を入れるかユーザに相談 |
 | U11 | コマンドラインから `ReloadSetting` を呼ぶ手段 | 4 | `EpgTimerSrv` の制御コマンド、Lua API(`edcb.ReloadSetting`)を調べる |
