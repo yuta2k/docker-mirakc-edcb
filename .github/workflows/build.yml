@@ -59,6 +59,11 @@ jobs:
       - name: Smoke test
         run: .github/scripts/smoke-test.sh edcb:ci
 
+      # starts containers from the built image (provisioning, permissions,
+      # health check, HTTPS); root is needed to clean up files of other UIDs
+      - name: Integration test
+        run: sudo EDCBTEST_IMAGE=edcb:ci EDCBTEST_SKIP_BUILD=1 tests/integration/run.sh
+
   mirakc:
     runs-on: ubuntu-24.04
     steps:
