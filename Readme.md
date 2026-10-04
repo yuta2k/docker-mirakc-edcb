@@ -27,7 +27,7 @@ EDCB の設定ファイルには介入しないため、セットアップに手
 * Legacy WebUI: 主に EDCB・EpgTimerSrv の設定、管理などを行います  
   `http://ホストの IP アドレスなど:5510/legacy`
 * EDCB_Material_WebUI (EMWUI) : 録画予約・管理・ストリーミング視聴などを行います  
-  `http://ホストの IP アドレスなど:5510/EMWUI`
+  `http://ホストの IP アドレスなど:5510/E3/`(EMWUI 3。以前のバージョンの `/EMWUI` は上流で削除されました)
 * EpgTimerNW: Windows クライアントより高度な EPG などを利用できます  
   EpgTimerNW は tkntrec 版か、互換性のあるフォークを使用してください。  
   ただし、次の設定は Legacy WebUI から行います。
