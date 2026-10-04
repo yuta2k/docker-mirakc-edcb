@@ -4,6 +4,10 @@ ARG BON_DRIVER_CHECKOUT=
 ARG EMWUI_CHECKOUT=
 
 FROM ${ARCH}ubuntu:24.04 AS build
+# ARGs declared before FROM are only visible in FROM lines; redeclare to use them in this stage
+ARG EDCB_CHECKOUT
+ARG BON_DRIVER_CHECKOUT
+ARG EMWUI_CHECKOUT
 WORKDIR /app
 
 RUN apt-get update && \
