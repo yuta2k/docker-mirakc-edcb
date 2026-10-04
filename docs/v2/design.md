@@ -40,8 +40,9 @@ docs/
   - `image:` に GHCR のイメージ、`build:` にローカルビルドの両方を書く(pull できなければビルドできる)
   - `env_file` は `./edcb.env` を `required: false` で読む
   - `depends_on` は mirakc を `required: false` で指定する
-  - ポートは `${EDCB_HTTP_PORT:-5510}:5510` のように変数にする。公開するのは 4510(TCP)、5510(HTTP)、5511(HTTPS)、5520 / 5521(EMWUI の SSE 用)
-  - `stop_grace_period` を指定する(値はフェーズ 2 で U6 を確認して決める)
+  - ポートは `${EDCB_HOST_HTTP_PORT:-5510}:5510` のように変数にする。変数名は `EDCB_HOST_TCP_PORT`、`EDCB_HOST_HTTP_PORT`(`.env` に書く。コンテナに渡す `EDCB_HTTP_PORT` と混同しないよう `HOST` を入れた)
+  - 既定で公開するのは 4510(TCP)と 5510(HTTP)だけ。HTTPS(コンテナ内 5511)と EMWUI の SSE 専用ポート(5520 / 5521)は、`compose.override-sample.yml` の例から利用者が足す(2026-10-05 にユーザと合意。2 台目の構成でホストの 5511 を HTTP に使っている場合などと衝突させないため)。EMWUI は SSE に「ブラウザで開いたポート + 10」を使うので、ホスト側も 10 違いにする
+  - `stop_grace_period: 2m`(U6。EpgTimerSrv はチューナーのプロセスを最大 30 秒待つ。`facts.md` の F14)
   - ボリューム: `./edcb/ini:/var/local/edcb`、`./edcb/overrides:/etc/edcb/overrides:ro`
 - 単一のファイルをマウントする箇所(`./mirakc/config.yml` など)は、長い書式で `bind: { create_host_path: false }` を指定する。短い書式だと、ファイルが無いときに Docker が同名のディレクトリを root 所有で作ってしまう。
 - mirakc サービスは既定で有効。使わない利用者は `compose.override.yml` に次を書いて無効にする。
@@ -63,11 +64,11 @@ services:
 | `PUID` / `PGID` | 実行ユーザ | `1000` / `1000` |
 | `UMASK` | 実行時の umask | — |
 | `TZ` | タイムゾーン | — |
-| `EDCB_HTTP_ACL` | `EpgTimerSrv.ini [SET] HttpAccessControlList` | localhost + プライベート帯(書式は U4 を確認して決める) |
+| `EDCB_HTTP_ACL` | `EpgTimerSrv.ini [SET] HttpAccessControlList` | localhost + プライベート帯(IPv4、IPv4 射影アドレス、IPv6 の ULA / リンクローカル。`facts.md` の F13) |
 | `EDCB_HTTP_PORT` | `EpgTimerSrv.ini [SET] HttpPort`(値をそのまま書く) | `ssl_cert.pem` があれば `5510,5520,5511s,5521s`、無ければ — |
 | `EDCB_HTTP_NUM_THREADS` | `EpgTimerSrv.ini [SET] HttpNumThreads` | `50` |
 | `EDCB_TCP_ENABLE` | `EpgTimerSrv.ini [SET] EnableTCPSrv`(`true` / `false`) | `true` |
-| `EDCB_TCP_ACL` | `EpgTimerSrv.ini [SET] TCPAccessControlList` | `EDCB_HTTP_ACL` の既定値と同じ |
+| `EDCB_TCP_ACL` | `EpgTimerSrv.ini [SET] TCPAccessControlList` | localhost + プライベート帯(IPv4 のみ。TCP は IPv4 と IPv6 の規則を混ぜるとすべて拒否するため。F13) |
 | `EDCB_COMPAT_FLAGS` | `EpgTimerSrv.ini [SET] CompatFlags` | `4095` |
 | `EDCB_REC_FOLDERS` | `Common.ini [SET] RecFolderNum` と `RecFolderPath<N>`(カンマ区切り) | — |
 | `EDCB_LEGACY_ALLOW_SETTING` | Legacy WebUI からの設定変更を許可するかの**起動時の状態**(`true` / `false`)。3.3 参照 | `false`(毎起動でこの値に戻す) |
@@ -79,9 +80,10 @@ services:
 
 - `EpgTimerSrv.ini [SET] EnableHttpSrv=1`(アクセスログを作らない設定。`make setup_ini` が `2` を書いた直後は `1` に直す)
 - `EpgTimerSrv.ini [SET] SaveDebugLog=1`
-- `EpgTimerSrv.ini [SET] HttpPublicFolder=<イメージ内のパス>`(6 章の条件を満たす場合)
+- ~~`EpgTimerSrv.ini [SET] HttpPublicFolder=<イメージ内のパス>`~~(U3 の結果、`HttpPublic` はボリュームに残すので書かない。6 章)
 - `EpgDataCap_Bon.ini [SET] SaveLogo=1`、`SaveLogoTypeFlags=32`
-- `EpgDataCap_Bon.ini [SET_TCP] Count=1`、`IP0=1`、`Port0=0`(SrvPipe。EMWUI のリモート視聴用。値の意味はフェーズ 2 で EDCB のソースを読んで確認する)
+- `EpgDataCap_Bon.ini [SET_TCP] Count=1`、`IP0=1`、`Port0=0`(SrvPipe = `0.0.0.1:0`。EMWUI のリモート視聴用。3 つで 1 つのリストなので、`Count` が無いときだけ書く。`Count=0` は利用者が無効にした状態)
+- `EnableHttpSrv=1` は、`make setup_ini` を使わずに初期ファイルを作る(5 章)ため、`2` が書かれることはない
 
 ### 3.2 接続先
 
@@ -103,7 +105,7 @@ services:
 
 **コンテナを再起動せずに切り替えられる必要がある**(再起動は録画を中断するため)。環境変数は起動時の状態を決めるだけで、起動中の切り替えは `edcbctl allow-setting on|off` で行う。
 
-- 許可の状態は、`/var/local/edcb` 配下の、プロビジョニングが所有する ini のキーとして持つ。Lua からは `edcb.GetPrivateProfile` でリクエストのたびに読めるので、書き換えた直後から効く(置き場所とキー名は実装時に決める。EMWUI の `Setting/HttpPublic.ini` とは別のファイルにする)。
+- 許可の状態は、`/var/local/edcb/.provision/webui.ini` の `[LEGACY] ALLOW_SETTING`(`1` / `0`)に持つ。Lua からは `edcb.GetPrivateProfile(...,'.provision/webui.ini')` でリクエストのたびに読めるので、書き換えた直後から効く。ファイルが無い・読めないときは禁止。
 - `legacy/util.lua` の `ALLOW_SETTING=true` / `false` の行を、上記のキーを読む式に**イメージのビルド時に**置き換える。置き換える行が見つからなければビルドを失敗させる(上流の変更に気づけるように)。起動のたびに `util.lua` を書き換える方式にはしない。
 - 起動時は、`EDCB_LEGACY_ALLOW_SETTING` の値(未指定なら `false`)に必ず戻す。起動中に `edcbctl` で許可した状態は、次の起動までしか続かない。常に許可したい利用者は `EDCB_LEGACY_ALLOW_SETTING=true` を指定する。
 - `edcbctl allow-setting status` で現在の状態を表示する。
@@ -128,10 +130,10 @@ Legacy WebUI は、オフにした項目を「キーの削除」ではなく `0`
 
 ## 5. 起動時の処理(entrypoint)
 
-root で開始し、次の順に行う。**どの段階で失敗しても、可能な限り EpgTimerSrv の起動まで進む。** 進めないのは、root で起動されていない場合だけ(エラーメッセージで `PUID` / `PGID` への移行を案内して終了する)。
+root で開始し、次の順に行う(フェーズ 2 の実装では、4 の所有者の判断を 2 の前に行う。初回かどうかを、プロビジョニングがファイルを作る前に判断するため)。**どの段階で失敗しても、可能な限り EpgTimerSrv の起動まで進む。** 進めないのは、root で起動されていない場合だけ(エラーメッセージで `PUID` / `PGID` への移行を案内して終了する)。
 
 1. SrvPipe の残骸(`/var/local/edcb/*.fifo`)を消す
-2. `make setup_ini` 相当の初期ファイルを作る(無いものだけ)
+2. `make setup_ini` 相当の初期ファイルを作る(無いものだけ)。`make setup_ini` は呼ばず、プロビジョニングが同じ変換(CP932 → UTF-8、CR の削除、`.dll` → `.so`)で `Bitrate.ini`、`BonCtrl.ini`、`ContentTypeText.txt` を作る。`HttpPublic` のコピーは 6 章の同期で行う
 3. プロビジョニングを実行する(5.1)
 4. `/var/local/edcb` の所有者を確認する。`PUID` / `PGID` で書き込めなければ警告を出す(`chown -R` を無断で行わない。初回で `Setting/` が空のときだけ所有者を設定する)
 5. `EDCB_LOG_STDOUT` が有効なら、デバッグログを標準出力へ流す処理を起動する
@@ -176,6 +178,10 @@ root で開始し、次の順に行う。**どの段階で失敗しても、可�
 - 設定変更の許可(3.3)のための `util.lua` の置き換えは、ビルド時に済ませる。起動時にイメージ内のファイルを書き換えない。
 - EMWUI の `Setting/`(`HttpPublic.ini`、`XCODE_OPTIONS.lua`)は、従来どおり `/var/local/edcb/Setting/` に、無いときだけコピーする。
 - **判断基準**: U3 の確認で、`HttpPublic` 配下に実行時に書き込む処理が 1 つでも見つかったら、イメージへの移動をやめる。その場合は現在の配置(ボリューム内)のままにし、「イメージ側のファイル一式のハッシュが前回と変わっていたら、ボリューム側を退避してから全体を入れ替える」方式にする。
+- **U3 の結果(フェーズ 2)**: 書き込む処理があった(EMWUI のサムネイル、トランスコードのログ)。ボリューム内に置き、次のように同期する(`edcb_provision/httppublic.py`)。
+  - イメージ内の一式は `/usr/local/share/edcb/HttpPublic`(EDCB の `index.html`、`favicon.ico`、`legacy/` と、EMWUI の `HttpPublic/`)。`util.lua` の置き換えはビルド時に済ませる。
+  - 一式のハッシュが状態ファイルの記録と違うときだけ、ボリューム側で内容が違うファイルを退避して上書きし、無いファイルを足す。前回入れたが今回の一式に無いファイルは、変更されていなければ退避して消す。
+  - それ以外のファイル(サムネイル、ログ、旧 `EMWUI/`)には触らない。ハッシュが同じときは、消えたファイルを戻すだけ。
 - 既存の利用者のボリュームに残る `HttpPublic/` は消さない。README で「不要になった」と案内する。
 
 ## 7. BonDriver とチューナー

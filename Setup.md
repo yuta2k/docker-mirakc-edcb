@@ -17,7 +17,9 @@
   * ほかお好みで改変してください
   * 同じ名前のフォルダに置いた構成を同じホストで 2 つ動かす場合は、片方の `.env` に `COMPOSE_PROJECT_NAME=<別の名前>` を書いてください  
     書かないと、2 つの構成が同じプロジェクトとして扱われ、片方の操作がもう片方のコンテナを作り直したり削除したりします
-* 必要であれば、次の場所に edcb コンテナを実行するユーザが読み書きできるよう、所有者・パーミッションを設定
+* 必要であれば `edcb.env-sample` を参考に `edcb.env` を作成・記入する(無くても起動します)
+* EDCB は `PUID` / `PGID`(既定 `1000` / `1000`)のユーザで動きます。`compose.override.yml` の `user:` は使えません  
+  次の場所を、そのユーザが読み書きできるようにしてください(`edcb/ini` は初回の起動時に自動で所有者を設定します)
   * `edcb/ini`
   * `volumes` で指定した録画ファイルの保存先
 
@@ -64,11 +66,9 @@ ChSet4.txt のファイル名が異なりますので、注意してください
 
 ## EDCB のアクセス制御設定
 
-`edcb/ini/EpgTimerSrv.ini` の `HttpAccessControlList` に WebUI などへアクセスを許可する接続元を追記します。  
-例: LAN のサブネット `,+192.168.x.0/24` など
-
-この `Setup.md` を書いた時点で `EnableHttpSrv=2` がデフォルトでアクセスログが生成されますが、肥大化していく傾向がありました。  
-`1` に変更・無効化し、必要であれば別の手段でアクセスログを摂るべきかもしれません。
+初回の起動時に、`edcb/ini/EpgTimerSrv.ini` の `HttpAccessControlList`(WebUI)と `TCPAccessControlList`(EpgTimerNW など)に、localhost とプライベートアドレス帯を許可する設定が書かれます。  
+変える場合は `edcb.env` の `EDCB_HTTP_ACL` / `EDCB_TCP_ACL` で指定するか、`EpgTimerSrv.ini` を直接編集します(`edcb.env-sample` 参照)。  
+アクセスログを作らない設定(`EnableHttpSrv=1`)も初回に書かれます。
 
 詳細はこちら: [tkntrec 版 EDCB a494558 コミット](https://github.com/tkntrec/EDCB/blob/a49455807fe98c9396b443d9e56d017fede3562f/Document/Readme_Mod.txt#civetweb%E3%81%AE%E7%B5%84%E3%81%BF%E8%BE%BC%E3%81%BF%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6)
 
@@ -85,10 +85,11 @@ ChSet4.txt のファイル名が異なりますので、注意してください
 現状 Linux 版 EDCB は、主にブラウザから Legacy WebUI を操作して設定・管理を行います。  
 (あるいはテキストエディタで ini ファイルを直接編集することも出来ます)
 
-初期状態では Legacy WebUI からの設定変更が禁止されているため、次のようにシェルスクリプトを実行し、許可するよう変更します。
+初期状態では Legacy WebUI からの設定変更が禁止されているため、次のコマンドで許可します(再起動は不要です)。  
+許可した状態は、コンテナの次の起動で禁止に戻ります。常に許可する場合は `edcb.env` に `EDCB_LEGACY_ALLOW_SETTING=true` を書きます。
 
 ```
-# sh chlegacyset.sh true
+# docker compose exec edcb edcbctl allow-setting on
 ```
 
 Legacy WebUI には `http://ホストの IP アドレスなど:5510/legacy` でアクセスします。  
@@ -102,11 +103,8 @@ Legacy WebUI には `http://ホストの IP アドレスなど:5510/legacy` で�
   * `BonDriver_LinuxMirakc.so` : 地上波・BS・CS チューナ用
   * `BonDriver_LinuxMirakc_T.so` : 地上波専用チューナ用
   * `BonDriver_LinuxMirakc_S.so` : BS・CS 専用チューナ用
-* 録画アプリ(EpgDataCap_Bon)  
-  EMWUI 向けに「ロゴデータを保存する」をチェック
+* EMWUI 向けの「ロゴデータを保存する」と、リモート視聴用の TCP 送信先(SrvPipe, 0.0.0.1:0)は、初回の起動時に設定されます
 * EMWUI でリモート視聴を使いたい場合:
-  * 録画アプリ(EpgDataCap_Bon) - ネットワーク設定 - TCP送信先  
-    SrvPipe, 0.0.0.1:0 を追加
   * その他 - 視聴に使用するBonDriver  
     BonDriver を追加
 
@@ -169,16 +167,16 @@ Legacy WebUI などで [EPG取得] ボタンを押します。
 落ち着いたところで Legacy WebUI からの設定を再び禁止すると、セキュリティ的に安心できると思います。
 
 ```
-# sh chlegacyset.sh false
+# docker compose exec edcb edcbctl allow-setting off
 ```
 
 その後再び設定を変更したい場合、
 
 ```
-# sh chlegacyset.sh true
+# docker compose exec edcb edcbctl allow-setting on
 ```
 
-を実行してください。
+を実行してください。現在の状態は `edcbctl allow-setting status` で確認できます。
 
 ## (動作検証方法)
 
