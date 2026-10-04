@@ -6,7 +6,7 @@
 # shellcheck disable=SC2154  # IMG, TMP, REPO, PREFIX, SKIP_BUILD etc. are set by run.sh
 
 NET=${PREFIX}-net
-FA=$(cname fake-a); FB=$(cname fake-b); FB2=$(cname fake-b2)
+FA=$(cname fake-a); FB=$(cname fake-b); FB2=$(cname fake-b2); HOLD=$(cname ip-hold)
 C31=$(cname 31); C35=$(cname 35); C38=$(cname 38); C39=$(cname 39)
 
 # fake <container> <alias> <scenario> [fake_mirakurun.py options...]
@@ -118,15 +118,20 @@ access "$FB" | grep stream
 n=$(naccess "$FB" "GET /api/channels/GR/27/stream")
 echo "requests for GR/27 to fake-b: $n (the first was closed after 100 kB)"
 [ "$n" -ge 2 ] || ok=0
-# replace fake-b: same alias, new container (and normally a new address)
+# replace fake-b: same alias, new container with a new address. Docker hands
+# the freed address to the next container, so another one takes it first.
 ip_old=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$FB")
 docker rm -f "$FB" >/dev/null
+track "$HOLD"
+docker run -d --name "$HOLD" --network "$NET" --entrypoint sleep "$IMG" infinity >/dev/null
 fake "$FB2" fake-b split
 ip_new=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$FB2")
 echo "fake-b: $ip_old -> $ip_new"
+[ "$ip_old" != "$ip_new" ] || { echo "the address did not change"; ok=0; }
 for _ in $(seq 20); do access "$FB2" | grep -q stream && break; sleep 1; done
 access "$FB2" | grep stream || { echo "no stream request reached the new fake-b"; ok=0; }
 wait "$BON_PID" 2>/dev/null
+docker rm -f "$HOLD" >/dev/null
 echo "--- EpgDataCap_Bon / BonDriver output"
 grep -E "reconnect|stream closed" "$TMP/t34" | head -10
 grep -q "reconnected after" "$TMP/t34" || { echo "no reconnect message"; ok=0; }
