@@ -43,6 +43,23 @@ EDCB の設定ファイルには介入しないため、セットアップに手
 # docker compose up -d
 ```
 
+### EDCB へのパッチ
+
+`edcb/patches/` 下のパッチを tkntrec 版 EDCB に当ててビルドしています。
+
+* `0001-write-default-prealloc-option.patch`  
+  録画開始時の容量確保(fallocate)を設定で無効化できるようにします。このイメージでは btrfs 上では確保しないのが既定です
+* `0002-free-folder-min-mb-option.patch`  
+  別の録画フォルダへ切り替える基準の空き容量(従来は 200MB 固定)を設定できるようにします
+
+設定方法は [Setup.md の「録画保存先が btrfs の場合」](Setup.md#録画保存先が-btrfs-の場合) を参照してください。
+
+パッチは tkntrec 版 EDCB の `622a1d3a` で確認しています。  
+上流の変更でパッチが当たらなくなった場合はビルドが失敗するので、`compose.yml` の `EDCB_CHECKOUT` でコミットを指定してください。  
+なお、以前のバージョンではビルド時に `EDCB_CHECKOUT` などの指定が反映されていませんでした。
+すでに `EDCB_CHECKOUT` で古いコミットを指定している場合、今後はそのコミットが使われるため、パッチが当たらずビルドが失敗することがあります。
+その場合は指定を外すか、パッチが当たるコミットに変更してください。
+
 ### 外部の mirakc・Mirakurun を使用する場合
 
 `compose.yml` を改変し EDCB のみを実行する場合など。  

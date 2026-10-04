@@ -2,8 +2,16 @@ ARG ARCH=
 ARG EDCB_CHECKOUT=
 ARG BON_DRIVER_CHECKOUT=
 ARG EMWUI_CHECKOUT=
+# default of Prealloc in Write_Default.so.ini (see edcb/patches/0001-*.patch)
+# 0: no preallocation, 1: preallocate (upstream behavior), 2: no preallocation on btrfs
+ARG EDCB_PREALLOC_DEFAULT=2
 
 FROM ${ARCH}ubuntu:24.04 AS build
+# ARGs declared before FROM are only visible in FROM lines; redeclare to use them in this stage
+ARG EDCB_CHECKOUT
+ARG BON_DRIVER_CHECKOUT
+ARG EMWUI_CHECKOUT
+ARG EDCB_PREALLOC_DEFAULT
 WORKDIR /app
 
 RUN apt-get update && \
@@ -35,11 +43,19 @@ RUN curl -L https://github.com/xtne6f/lua/archive/refs/heads/v5.2-luabinaries.ta
   (cd lua-zlib-0.5-lua52 && make libzlib52.so)
 
 # EDCB
-RUN git clone https://github.com/tkntrec/EDCB.git && \
+# apply edcb/patches/*.patch in order (see each patch for details)
+COPY patches/ /app/edcb-patches/
+RUN case "$EDCB_PREALLOC_DEFAULT" in 0|1|2) ;; \
+    *) echo "EDCB_PREALLOC_DEFAULT must be 0, 1 or 2" >&2; exit 1 ;; \
+  esac && \
+  git clone https://github.com/tkntrec/EDCB.git && \
   cd EDCB && \
   if [ -n "$EDCB_CHECKOUT" ]; then git checkout $EDCB_CHECKOUT; fi && \
+  for p in /app/edcb-patches/*.patch; do \
+    git apply --verbose "$p" || exit 1; \
+  done && \
   cd Document/Unix && \
-  make && \
+  CPPFLAGS="-DWRITE_DEFAULT_PREALLOC_DEFAULT=$EDCB_PREALLOC_DEFAULT" make && \
   make extra
 
 
