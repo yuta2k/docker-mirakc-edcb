@@ -1,7 +1,7 @@
 import io
 import os
 
-from edcb_provision import config, provision
+from edcb_provision import backends, config, provision
 
 
 class Capture(provision.Reporter):
@@ -13,8 +13,14 @@ class Capture(provision.Reporter):
         return self.out.getvalue().splitlines()
 
 
+def no_tuners(found, timeout):
+    """A fetcher for tests that are not about backends: every backend answers, without tuners."""
+    return {b.name: backends.Info("live", [], [], "now") for b in found}
+
+
 def run(paths, env=None, **kw):
     r = Capture()
+    kw.setdefault("fetch", no_tuners)
     rc = provision.run(env or {}, paths, reporter=r, **kw)
     assert rc == 0
     return r
@@ -55,7 +61,10 @@ def test_second_run_changes_nothing(tree):
     run(tree, boot=True)
     before = snapshot(tree.root)
     r = run(tree, boot=True)
-    assert r.lines == ["provision: no changes"]
+    assert r.lines == [
+        "provision: backend DEFAULT: http://mirakc:40772 (reachable), tuners M=0 T=0 S=0",
+        "provision: no changes",
+    ]
     assert snapshot(tree.root) == before
     assert not os.path.exists(os.path.join(tree.root, ".provision", "backup"))
 

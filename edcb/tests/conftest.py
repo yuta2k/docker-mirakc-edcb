@@ -18,7 +18,12 @@ def tree(tmp_path):
     overrides = tmp_path / "overrides"
     share = tmp_path / "share"
     edcb_ini = tmp_path / "src-ini"
+    lib = tmp_path / "lib"
+    bondriver = tmp_path / "bondriver" / "BonDriver_LinuxMirakc.so"
     root.mkdir()
+    lib.mkdir()
+    bondriver.parent.mkdir()
+    bondriver.write_bytes(b"\x7fELF fake BonDriver\n")
     (share / "HttpPublic" / "legacy").mkdir(parents=True)
     (share / "HttpPublic" / "legacy" / "util.lua").write_bytes(
         b"ALLOW_SETTING=edcb.GetPrivateProfile('LEGACY','ALLOW_SETTING','0','.provision/webui.ini')=='1'\r\n"
@@ -31,4 +36,4 @@ def tree(tmp_path):
     (edcb_ini / "Bitrate.ini").write_bytes("[BITRATE]\r\n;地上波\r\nFFFFFFFFFFFF=16860\r\n".encode("cp932"))
     (edcb_ini / "BonCtrl.ini").write_bytes(b"[SET]\r\nFFFFFFFF=B25Decoder.dll\r\n")
     (edcb_ini / "ContentTypeText.txt").write_bytes(b".ts\tvideo/MP2T\r\n")
-    return Paths(str(root), str(overrides), str(share), str(edcb_ini))
+    return Paths(str(root), str(overrides), str(share), str(edcb_ini), str(lib), str(bondriver))

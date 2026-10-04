@@ -1,0 +1,608 @@
+"""Backends (mirakc / Mirakurun), their BonDrivers and tuner counts.
+
+See docs/v2/design.md 3.2 (variables), 5.1 step 2 (fetching), 7 (BonDrivers
+and tuners). A backend that cannot be reached never stops the start-up
+(decisions.md E1): the last fetched information is used, or no tuners.
+"""
+
+import json
+import os
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+
+from . import fsutil, ini
+from .config import SRV_INI, Entry, parse_bool
+
+PREFIX = "EDCB_BACKEND_"
+FIELDS = ("URL", "TUNERS", "PRIORITY", "DECODE")
+DEFAULT_NAME = "DEFAULT"
+# the mirakc service of compose.yml, used when no backend is given
+BUNDLED_URL = "http://mirakc:40772"
+DEFAULT_PORT = 40772
+DEFAULT_PRIORITY = 10
+DEFAULT_DECODE = 1
+# M: terrestrial and satellite, T: terrestrial only, S: satellite only
+KINDS = ("M", "T", "S")
+BONDRIVER_BASE = "BonDriver_LinuxMirakc"
+
+# upper-case letters and digits, starting with a letter; T and S would make
+# the file names ambiguous (BonDriver_LinuxMirakc_T.so)
+_NAME_RE = re.compile(r"[A-Z][A-Z0-9]*")
+_RESERVED_NAMES = {"T", "S"}
+_HOST_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?")
+
+# time limits of fetching (seconds)
+REQUEST_TIMEOUT = 5
+TOTAL_TIMEOUT = 30
+
+CACHE_VERSION = 1
+
+
+@dataclass
+class Backend:
+    name: str
+    url: str
+    host: str
+    port: int
+    tuners: dict | None = None  # explicit {"M": n, "T": n, "S": n}; None: auto
+    priority: int = DEFAULT_PRIORITY
+    decode: int = DEFAULT_DECODE
+    source: str = ""  # where the URL came from, for messages
+
+    def bondriver(self, kind):
+        """File name of the BonDriver of a kind (design.md 7.1)."""
+        parts = [BONDRIVER_BASE]
+        if self.name != DEFAULT_NAME:
+            parts.append(self.name)
+        if kind != "M":
+            parts.append(kind)
+        return "_".join(parts) + ".so"
+
+    def bondriver_ini(self):
+        return (
+            f"; Generated from {self.source} on every start. Do not edit.\n"
+            "[GLOBAL]\n"
+            f'SERVER_HOST="{self.host}"\n'
+            f"SERVER_PORT={self.port}\n"
+            'SERVER_TYPE="http"\n'
+            f"DECODE_B25={self.decode}\n"
+            f"PRIORITY={self.priority}\n"
+            "SERVICE_SPLIT=0\n"
+        ).encode()
+
+
+@dataclass
+class Info:
+    """What is known about a backend's tuners and channels."""
+
+    source: str  # "live", "cache" or "none"
+    tuners: list = field(default_factory=list)
+    channels: list = field(default_factory=list)
+    fetched_at: str | None = None
+    error: str | None = None
+
+
+# ----- variables -----
+
+
+def parse_url(value):
+    """Return (url, host, port) or raise ValueError."""
+    u = urllib.parse.urlsplit(value)
+    if u.scheme != "http":
+        raise ValueError("must start with http://")
+    if u.username or u.password or u.query or u.fragment or u.path not in ("", "/"):
+        raise ValueError("must be http://<host>:<port> without a path")
+    try:
+        port = u.port or DEFAULT_PORT
+    except ValueError:
+        raise ValueError("invalid port") from None
+    host = u.hostname or ""
+    if ":" in host or u.netloc.startswith("["):
+        raise ValueError("IPv6 addresses are not supported (the BonDriver connects over IPv4)")
+    if not _HOST_RE.fullmatch(host):
+        raise ValueError("invalid host")
+    return f"http://{host}:{port}", host, port
+
+
+def parse_tuners(value):
+    """Return None for auto or {"M": n, "T": n, "S": n}; raise ValueError."""
+    if value.lower() == "auto":
+        return None
+    counts = {}
+    for item in value.split(","):
+        kind, sep, n = item.strip().partition(":")
+        kind = kind.strip().upper()
+        n = n.strip()
+        if not sep or kind not in KINDS or not n.isdigit():
+            raise ValueError("must be auto or like M:2,T:2,S:0")
+        if kind in counts:
+            raise ValueError(f"{kind} is given twice")
+        if int(n) > 99:
+            raise ValueError("at most 99 tuners per kind")
+        counts[kind] = int(n)
+    return {k: counts.get(k, 0) for k in KINDS}
+
+
+def parse_env(env):
+    """Return (backends, warnings). DEFAULT comes first, the others by name."""
+    warnings = []
+    warn = warnings.append
+
+    def get(name):
+        value = env.get(name)
+        if value is None or value.strip() == "":
+            return None
+        return value.strip()
+
+    fields = {}  # name -> {field: value}
+    for var in sorted(env):
+        if not var.startswith(PREFIX):
+            continue
+        if get(var) is None:
+            continue
+        rest = var[len(PREFIX) :]
+        name, _, fld = rest.rpartition("_")
+        if fld not in FIELDS:
+            warn(f"unknown variable {var} is ignored (expected {PREFIX}<NAME>_{{{','.join(FIELDS)}}})")
+            continue
+        if not _NAME_RE.fullmatch(name) or name in _RESERVED_NAMES:
+            warn(
+                f"{var} is ignored: invalid backend name {name!r} (use upper-case letters and digits, "
+                "starting with a letter, without underscores; T and S are reserved)"
+            )
+            continue
+        fields.setdefault(name, {})[fld] = get(var)
+
+    # compatibility: MIRAKC_ADDRESS / MIRAKC_PORT (and the misspelled MIRKAC_* before v1.0.4)
+    address = get("MIRAKC_ADDRESS") or get("MIRKAC_ADDRESS")
+    port = get("MIRAKC_PORT") or get("MIRKAC_PORT")
+    if address or port:
+        default_fields = fields.setdefault(DEFAULT_NAME, {})
+        if "URL" in default_fields:
+            warn(f"MIRAKC_ADDRESS / MIRAKC_PORT are ignored because {PREFIX}{DEFAULT_NAME}_URL is set")
+        else:
+            default_fields["URL"] = f"http://{address or 'mirakc'}:{port or DEFAULT_PORT}"
+            default_fields["_source"] = "MIRAKC_ADDRESS / MIRAKC_PORT"
+
+    # without any URL, the bundled mirakc is the backend; DEFAULT without a
+    # URL is the bundled mirakc too (to set EDCB_BACKEND_DEFAULT_TUNERS alone)
+    if not any("URL" in f for f in fields.values()):
+        fields.setdefault(DEFAULT_NAME, {})
+    if DEFAULT_NAME in fields and "URL" not in fields[DEFAULT_NAME]:
+        fields[DEFAULT_NAME].update(URL=BUNDLED_URL, _source="the default (bundled mirakc)")
+
+    backends = []
+    for name in sorted(fields, key=lambda n: (n != DEFAULT_NAME, n)):
+        f = fields[name]
+        source = f.get("_source", f"{PREFIX}{name}_URL")
+        if "URL" not in f:
+            warn(f"backend {name} is ignored: {PREFIX}{name}_URL is not set")
+            continue
+        try:
+            url, host, port_n = parse_url(f["URL"])
+        except ValueError as e:
+            warn(f"backend {name} is ignored: {source} {f['URL']!r} {e}")
+            continue
+        b = Backend(name, url, host, port_n, source=source)
+        if "TUNERS" in f:
+            try:
+                b.tuners = parse_tuners(f["TUNERS"])
+            except ValueError as e:
+                warn(f"{PREFIX}{name}_TUNERS is ignored ({e}; got {f['TUNERS']!r}); using auto")
+        if "PRIORITY" in f:
+            if re.fullmatch(r"-?\d+", f["PRIORITY"]):
+                b.priority = int(f["PRIORITY"])
+            else:
+                warn(f"{PREFIX}{name}_PRIORITY is ignored: must be an integer (got {f['PRIORITY']!r})")
+        if "DECODE" in f:
+            d = parse_bool(f["DECODE"])
+            if d is None:
+                warn(f"{PREFIX}{name}_DECODE is ignored: must be 0 or 1 (got {f['DECODE']!r})")
+            else:
+                b.decode = 1 if d else 0
+        backends.append(b)
+    return backends, warnings
+
+
+# ----- fetching -----
+
+
+def _get_json(url, timeout):
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _clean(tuners, channels):
+    """Keep the fields we use; raise ValueError on an unexpected shape."""
+    if not isinstance(tuners, list) or not isinstance(channels, list):
+        raise ValueError("unexpected response (not a list)")
+    t_out = []
+    for t in tuners:
+        if not isinstance(t, dict) or not isinstance(t.get("types"), list):
+            raise ValueError("unexpected /api/tuners item")
+        t_out.append({"index": t.get("index"), "name": str(t.get("name", "")), "types": [str(x) for x in t["types"]]})
+    c_out = []
+    for c in channels:
+        if not isinstance(c, dict) or not isinstance(c.get("type"), str) or not isinstance(c.get("channel"), str):
+            raise ValueError("unexpected /api/channels item")
+        c_out.append({"type": c["type"], "channel": c["channel"], "name": str(c.get("name", ""))})
+    return t_out, c_out
+
+
+def fetch(backend, deadline):
+    """Fetch /api/tuners and /api/channels. Return Info (source live or none)."""
+    try:
+        results = []
+        for path in ("/api/tuners", "/api/channels"):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("timed out")
+            results.append(_get_json(backend.url + path, min(REQUEST_TIMEOUT, remaining)))
+        tuners, channels = _clean(*results)
+    except (OSError, ValueError, urllib.error.URLError) as e:
+        reason = getattr(e, "reason", None) or e
+        return Info("none", error=str(reason) or type(e).__name__)
+    return Info("live", tuners, channels, time.strftime("%Y-%m-%dT%H:%M:%S%z"))
+
+
+def fetch_all(backends, total_timeout=TOTAL_TIMEOUT):
+    """Fetch every backend in parallel; the whole call takes at most total_timeout."""
+    deadline = time.monotonic() + total_timeout
+    results = {}
+    lock = threading.Lock()
+
+    def work(b):
+        info = fetch(b, deadline)
+        with lock:
+            results[b.name] = info
+
+    threads = [threading.Thread(target=work, args=(b,), daemon=True) for b in backends]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(max(0.0, deadline - time.monotonic()))
+    with lock:
+        return {b.name: results.get(b.name) or Info("none", error="timed out") for b in backends}
+
+
+# ----- cache (.provision/backend-<NAME>.json) -----
+
+
+def cache_rel(name):
+    return os.path.join(fsutil.STATE_DIR, f"backend-{name}.json")
+
+
+def save_cache(root, backend, info, owner):
+    data = {
+        "version": CACHE_VERSION,
+        "url": backend.url,
+        "fetched_at": info.fetched_at,
+        "tuners": info.tuners,
+        "channels": info.channels,
+    }
+    body = (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode()
+    fsutil.write_atomic(os.path.join(root, cache_rel(backend.name)), body, owner)
+
+
+def load_cache(root, backend):
+    """Return Info (source cache) or None, and a warning or None."""
+    path = os.path.join(root, cache_rel(backend.name))
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as e:
+        return None, f"{cache_rel(backend.name)} is unreadable and is ignored: {e}"
+    if not isinstance(data, dict) or data.get("version") != CACHE_VERSION:
+        return None, f"{cache_rel(backend.name)} has an unknown format and is ignored"
+    if data.get("url") != backend.url:
+        return None, f"{cache_rel(backend.name)} is for {data.get('url')}, not {backend.url}; it is ignored"
+    try:
+        tuners, channels = _clean(data.get("tuners"), data.get("channels"))
+    except ValueError as e:
+        return None, f"{cache_rel(backend.name)} is ignored: {e}"
+    return Info("cache", tuners, channels, data.get("fetched_at")), None
+
+
+def resolve(root, backends, live, owner, *, dry_run=False, log, warn):
+    """Combine live results with the cache. Saves successful results."""
+    infos = {}
+    for b in backends:
+        info = live[b.name]
+        if info.source == "live":
+            if not dry_run:
+                try:
+                    save_cache(root, b, info, owner)
+                except OSError as e:
+                    warn(f"cannot save {cache_rel(b.name)}: {e}")
+            infos[b.name] = info
+            continue
+        cached, w = load_cache(root, b)
+        if w:
+            warn(w)
+        if cached:
+            warn(f"backend {b.name} ({b.url}) is unreachable ({info.error}); using the information from {cached.fetched_at}")
+            cached.error = info.error
+            infos[b.name] = cached
+        else:
+            warn(f"backend {b.name} ({b.url}) is unreachable ({info.error}) and nothing was saved before; no tuners are set up for it")
+            infos[b.name] = info
+    return infos
+
+
+# ----- tuners -----
+
+
+def classify(tuners):
+    """Count tuners per kind (design.md 7.2). Return (counts, names not counted)."""
+    counts = dict.fromkeys(KINDS, 0)
+    others = []
+    for t in tuners:
+        types = set(t["types"])
+        gr = "GR" in types
+        sat = bool(types & {"BS", "CS"})
+        if gr and sat:
+            counts["M"] += 1
+        elif gr:
+            counts["T"] += 1
+        elif sat:
+            counts["S"] += 1
+        else:
+            others.append(t.get("name") or str(t.get("index")))
+    return counts, others
+
+
+def tuner_counts(backend, info):
+    """Return (counts or None if unknown, explicit?)."""
+    if backend.tuners is not None:
+        return dict(backend.tuners), True
+    if info.source == "none":
+        return None, False
+    counts, _ = classify(info.tuners)
+    return counts, False
+
+
+def tuner_entries(root, backends, infos, *, warn):
+    """Entries for the [BonDriver_*.so] sections of EpgTimerSrv.ini (design.md 7.3).
+
+    A section that does not exist gets Count, GetEpg, EPGCount and Priority.
+    An existing one is left alone; with TUNERS=auto, a different Count is
+    only reported. With an explicit TUNERS, Count is written on every start.
+    """
+    path = os.path.join(root, SRV_INI)
+    try:
+        srv = ini.IniFile.load(path) if os.path.isfile(path) else ini.IniFile()
+    except OSError as e:
+        warn(f"tuner counts are not set: cannot read {SRV_INI}: {e}")
+        return []
+
+    priorities = []
+    for section in srv.sections():
+        if section.endswith((".so", ".dll")):
+            v = srv.get(section, "Priority")
+            if v is not None and re.fullmatch(r"\d+", v.strip()):
+                priorities.append(int(v))
+    next_priority = max(priorities) + 1 if priorities else 0
+
+    entries = []
+    for b in backends:
+        counts, explicit = tuner_counts(b, infos[b.name])
+        if counts is None:
+            continue
+        if not explicit:
+            _, others = classify(infos[b.name].tuners)
+            if others:
+                warn(f"backend {b.name}: tuners without GR, BS or CS are not used: {', '.join(others)}")
+        for kind in KINDS:
+            section = b.bondriver(kind)
+            n = counts[kind]
+            exists = srv.has_section(section)
+            if explicit:
+                if exists or n > 0:
+                    entries.append(Entry(SRV_INI, section, "Count", str(n), True, f"env {PREFIX}{b.name}_TUNERS"))
+            elif exists:
+                current = srv.get(section, "Count")
+                if current is not None and current.strip() != str(n):
+                    warn(
+                        f"{SRV_INI} [{section}] Count is {current.strip()}, but backend {b.name} has {n} "
+                        f"tuner(s) of kind {kind}; left unchanged (change it in the WebUI, or set "
+                        f"{PREFIX}{b.name}_TUNERS to have it written on every start)"
+                    )
+            if not exists and n > 0:
+                source = "default (tuners of the backend)"
+                if not explicit:
+                    entries.append(Entry(SRV_INI, section, "Count", str(n), False, source))
+                entries.append(Entry(SRV_INI, section, "GetEpg", "1", False, source))
+                entries.append(Entry(SRV_INI, section, "EPGCount", "0", False, source))
+                entries.append(Entry(SRV_INI, section, "Priority", str(next_priority), False, source))
+                next_priority += 1
+    return entries
+
+
+# ----- BonDriver files (design.md 7.1) -----
+
+MANIFEST = ".edcb-provision.json"
+
+
+def _load_manifest(lib_dir):
+    try:
+        with open(os.path.join(lib_dir, MANIFEST), encoding="utf-8") as f:
+            data = json.load(f)
+        files = data.get("files")
+        return dict(files) if isinstance(files, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _write_lib_file(path, data, mode):
+    tmp = os.path.join(os.path.dirname(path), f".{os.path.basename(path)}.provision-tmp")
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.chmod(tmp, mode)
+    # a rename keeps a running EpgDataCap_Bon's mapping of the old file valid
+    os.replace(tmp, path)
+
+
+def install_bondrivers(backends, lib_dir, template, *, dry_run=False, log, warn):
+    """Copy the BonDriver and write its .ini for every backend and kind.
+
+    Only files this function created (listed in the manifest with the same
+    hash) are replaced or deleted. Returns the number of changes.
+    """
+    try:
+        with open(template, "rb") as f:
+            so_data = f.read()
+    except OSError as e:
+        warn(f"BonDrivers are not set up: cannot read {template}: {e}")
+        return 0
+    manifest = _load_manifest(lib_dir)
+    new_manifest = {}
+    wanted = {}
+    for b in backends:
+        for kind in KINDS:
+            so = b.bondriver(kind)
+            wanted[so] = (so_data, 0o755)
+            wanted[so + ".ini"] = (b.bondriver_ini(), 0o644)
+
+    changes = 0
+    for name, (data, mode) in wanted.items():
+        path = os.path.join(lib_dir, name)
+        digest = fsutil.sha256_bytes(data)
+        if os.path.lexists(path):
+            current = fsutil.sha256_file(path) if os.path.isfile(path) else None
+            if current == digest and not os.path.islink(path):
+                new_manifest[name] = digest
+                continue
+            if manifest.get(name) is None or manifest.get(name) != current:
+                warn(f"{path} was not created by the provisioning and is left unchanged")
+                continue
+            action = "update"
+        else:
+            action = "create"
+        log(f"{action} {path}")
+        changes += 1
+        if not dry_run:
+            try:
+                _write_lib_file(path, data, mode)
+            except OSError as e:
+                warn(f"cannot write {path}: {e}")
+                continue
+        new_manifest[name] = digest
+
+    for name, digest in manifest.items():
+        if name in wanted:
+            continue
+        path = os.path.join(lib_dir, name)
+        if not os.path.lexists(path):
+            continue
+        if os.path.isfile(path) and fsutil.sha256_file(path) == digest:
+            log(f"delete {path} (backend removed)")
+            changes += 1
+            if not dry_run:
+                try:
+                    os.remove(path)
+                except OSError as e:
+                    warn(f"cannot delete {path}: {e}")
+                    new_manifest[name] = digest
+        else:
+            warn(f"{path} was changed after the provisioning created it and is left in place")
+
+    if not dry_run and new_manifest != manifest:
+        try:
+            _write_lib_file(
+                os.path.join(lib_dir, MANIFEST),
+                (json.dumps({"files": new_manifest}, indent=2, sort_keys=True) + "\n").encode(),
+                0o644,
+            )
+        except OSError as e:
+            warn(f"cannot write {os.path.join(lib_dir, MANIFEST)}: {e}")
+    return changes
+
+
+def describe(backend, info):
+    counts, explicit = tuner_counts(backend, info)
+    if counts is None:
+        tuners = "unknown"
+    else:
+        tuners = " ".join(f"{k}={counts[k]}" for k in KINDS) + (" (TUNERS)" if explicit else "")
+    state = {"live": "reachable", "cache": f"unreachable, saved {info.fetched_at}", "none": "unreachable"}[info.source]
+    return f"backend {backend.name}: {backend.url} ({state}), tuners {tuners}"
+
+
+# ----- edcbctl backends -----
+
+
+def chset4_rel(bondriver):
+    """ChSet4 that makes EDCB see a BonDriver (facts.md F3)."""
+    return os.path.join("Setting", f"{bondriver[:-3]}(LinuxMirakc).ChSet4.txt")
+
+
+def report(env, root, *, out, fetch=None, total_timeout=10):
+    """Print the state of every backend. Writes nothing. Returns 1 if one is unreachable."""
+    found, warnings = parse_env(env)
+    for w in warnings:
+        print(f"WARNING: {w}", file=out)
+    live = (fetch or fetch_all)(found, total_timeout)
+    path = os.path.join(root, SRV_INI)
+    try:
+        srv = ini.IniFile.load(path) if os.path.isfile(path) else ini.IniFile()
+    except OSError as e:
+        print(f"WARNING: cannot read {SRV_INI}: {e}", file=out)
+        srv = ini.IniFile()
+
+    rc = 0
+    for b in found:
+        info = live[b.name]
+        if info.source == "live":
+            state = "reachable"
+        else:
+            rc = 1
+            cached, _ = load_cache(root, b)
+            if cached:
+                info = cached
+                state = f"UNREACHABLE ({live[b.name].error}); showing the information from {cached.fetched_at}"
+            else:
+                state = f"UNREACHABLE ({live[b.name].error}); nothing saved"
+        print(f"{b.name}: {b.url} ({state})", file=out)
+        counts, explicit = tuner_counts(b, info)
+        actual, _ = classify(info.tuners) if info.source != "none" else (None, None)
+        rows = [("kind", "BonDriver", "tuners", "Count", "ChSet4")]
+        for kind in KINDS:
+            name = b.bondriver(kind)
+            count = srv.get(name, "Count")
+            mark = ""
+            if count is not None and counts is not None and count.strip() != str(counts[kind]):
+                mark = " *"
+            rows.append(
+                (
+                    kind,
+                    name,
+                    "?" if actual is None else str(actual[kind]),
+                    ("-" if count is None else count.strip()) + mark,
+                    "yes" if os.path.isfile(os.path.join(root, chset4_rel(name))) else "no",
+                )
+            )
+        widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
+        for r in rows:
+            print("  " + "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip(), file=out)
+        if explicit:
+            print(f"  Count is set from {PREFIX}{b.name}_TUNERS on every start", file=out)
+        if any(r[3].endswith("*") for r in rows[1:]):
+            print("  * Count differs from the tuners of the backend", file=out)
+        if info.source != "none":
+            types = {}
+            for c in info.channels:
+                types[c["type"]] = types.get(c["type"], 0) + 1
+            summary = ", ".join(f"{t} {n}" for t, n in types.items()) or "none"
+            print(f"  channels: {len(info.channels)} ({summary})", file=out)
+        # the channel drift check needs a recorded scan (design.md 8.4, phase 4)
+        print("  channel changes since the last scan: not checked (no scan recorded)", file=out)
+    print("tuners: from the backend; Count: EpgTimerSrv.ini; ChSet4: without it, EDCB does not use the BonDriver", file=out)
+    return rc

@@ -75,26 +75,6 @@ as_user() {
   setpriv --reuid="$PUID" --regid="$PGID" "$@"
 }
 
-# === BonDriver_LinuxMirakc (unchanged from v1 until phase 3) ===
-# BonDriver_LinuxMirakc cannot resolve host names, so the address is resolved here.
-
-# typo correction for under v1.0.4 compose.yml
-if [ -z "${MIRAKC_ADDRESS:-}" ] && [ -n "${MIRKAC_ADDRESS:-}" ]; then MIRAKC_ADDRESS=$MIRKAC_ADDRESS; fi
-if [ -z "${MIRAKC_PORT:-}" ] && [ -n "${MIRKAC_PORT:-}" ]; then MIRAKC_PORT=$MIRKAC_PORT; fi
-MIRAKC_ADDRESS=${MIRAKC_ADDRESS:-mirakc}
-MIRAKC_PORT=${MIRAKC_PORT:-40772}
-
-BONDRIVER_INI=/var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
-MIRAKC_IP_ADDRESS=$(getent ahosts "$MIRAKC_ADDRESS" | sed -n 's/ *STREAM.*//p' | head -n 1)
-if [ -z "$MIRAKC_IP_ADDRESS" ]; then
-  warn "cannot resolve '$MIRAKC_ADDRESS' (MIRAKC_ADDRESS); tuners are unavailable until it resolves and the container restarts"
-else
-  sed -i -e "s/^SERVER_HOST=.*/SERVER_HOST=\"$MIRAKC_IP_ADDRESS\"/" \
-    -e "s/^SERVER_PORT=.*/SERVER_PORT=\"$MIRAKC_PORT\"/" "$BONDRIVER_INI" ||
-    warn "cannot write $BONDRIVER_INI"
-  log "mirakc: $MIRAKC_ADDRESS ($MIRAKC_IP_ADDRESS):$MIRAKC_PORT"
-fi
-
 # === 1. leftovers of SrvPipe from the previous run ===
 rm -f "$EDCB_ROOT"/*.fifo
 
@@ -119,6 +99,8 @@ else
 fi
 
 # === 2-3. initial files and provisioning ===
+# Also fetches the backends (at most about 30 s in total), installs one
+# BonDriver per backend and kind into /usr/local/lib/edcb and sets the tuner counts.
 edcbctl provision --boot || warn "provisioning failed; starting EpgTimerSrv with the current settings"
 
 # === 5. debug logs to standard output ===

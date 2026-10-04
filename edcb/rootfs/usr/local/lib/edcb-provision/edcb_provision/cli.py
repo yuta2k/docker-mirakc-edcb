@@ -7,7 +7,7 @@ import argparse
 import os
 import sys
 
-from . import fsutil, legacy, provision
+from . import backends, fsutil, legacy, provision
 
 
 def _cmd_provision(args, env):
@@ -40,6 +40,11 @@ def _cmd_allow_setting(args, env):
     return 0
 
 
+def _cmd_backends(args, env):
+    root = provision.Paths.from_env(env).root
+    return backends.report(env, root, out=sys.stdout)
+
+
 def main(argv=None, env=None):
     env = dict(os.environ if env is None else env)
     parser = argparse.ArgumentParser(prog="edcbctl", description="Control commands for the EDCB container.")
@@ -54,6 +59,9 @@ def main(argv=None, env=None):
     p = sub.add_parser("allow-setting", help="allow or deny setting changes from the legacy WebUI (no restart needed)")
     p.add_argument("state", choices=["on", "off", "status"])
     p.set_defaults(func=_cmd_allow_setting)
+
+    p = sub.add_parser("backends", help="show the backends, their tuners and the tuner counts EDCB uses")
+    p.set_defaults(func=_cmd_backends)
 
     args = parser.parse_args(argv)
     return args.func(args, env)
