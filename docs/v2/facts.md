@@ -72,7 +72,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 
 - EpgTimerSrv と EpgDataCap_Bon は、SIGHUP / SIGINT / SIGTERM を `sigtimedwait` で受け、通常の終了処理(`ID_CLOSE`)に入る(`Common/MessageManager.cpp`)。EpgDataCap_Bon は録画を止めてファイルを閉じ、BonDriver を閉じる。
 - EpgTimerSrv は終了時に各チューナーのプロセスへ終了を要求し、**最大 30 秒**待ってから SIGKILL する(`TunerBankCtrl.cpp` の `CloseTuner`)。
-- entrypoint はプロセスグループ全体に SIGTERM を送るので、EpgDataCap_Bon は EpgTimerSrv からの要求を待たずに並行して終了処理に入る。チューナーなしの構成では `docker stop` が約 3 秒で終わった(フェーズ 2 の検証)。
+- entrypoint はプロセスグループ全体に SIGTERM を送るので、EpgDataCap_Bon は EpgTimerSrv からの要求を待たずに並行して終了処理に入る。チューナーなしの構成では `docker stop` が約 3 秒で終わった(フェーズ 2 の検証)。実機で録画中に `docker compose stop` したときは 2.2 秒で終わり、録画ファイルは壊れていなかった(フェーズ 2 の実機確認)。
 
 ### F15. そのほか(フェーズ 2 で確認)
 
@@ -153,7 +153,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 | ~~U3~~ | ~~`HttpPublic` 配下に実行時に書き込む処理があるか~~ | 2 | **確認済み: ある**。EMWUI の `api/Library` がサムネイルを `<公開フォルダ>/video/thumbs/` に作り、削除もする。`legacy/xcode.lua`、`legacy/view.lua`、EMWUI の `api/xcode`、`api/view` は、`XCODE_LOG` が有効なとき(EMWUI は `Setting/HttpPublic.ini [XCODE] LOG`、Legacy は既定 false の定数)スクリプトと同じフォルダの `log/` にログを書く。`design.md` の 6 章の判断基準により、`HttpPublic` はボリュームに残す |
 | ~~U4~~ | ~~`HttpAccessControlList` の書式(IPv6、IPv4 射影アドレスの扱い)~~ | 2 | **確認済み**(F13)。TCP 側は IPv4 と IPv6 を混ぜられない |
 | ~~U5~~ | ~~EDCB の ini のキー名は大文字小文字を区別するか~~ | 2 | **確認済み: 区別しない**(F12。セクション名も同じ) |
-| ~~U6~~ | ~~SIGTERM を受けた EpgTimerSrv / EpgDataCap_Bon が録画ファイルを正常に閉じるか、所要時間~~ | 2 | **確認済み**(F14)。正常に閉じる。`stop_grace_period` は 2 分にした。チューナーがある状態での所要時間は実機確認を依頼する |
+| ~~U6~~ | ~~SIGTERM を受けた EpgTimerSrv / EpgDataCap_Bon が録画ファイルを正常に閉じるか、所要時間~~ | 2 | **確認済み**(F14)。正常に閉じる。実機の録画中で 2.2 秒。`stop_grace_period` は 2 分にした |
 | ~~U7~~ | ~~Linux 版の `ssl_cert.pem` の置き場所(`/var/local/edcb` か)~~ | 2 | **確認済み: `/var/local/edcb/ssl_cert.pem`**(`HttpServer.cpp` が `Common.ini` と同じフォルダの `ssl_` に `cert.pem` を付けて組み立てる。`ssl_peer.pem`、`glpasswd` も同じフォルダ)。フェーズ 2 の検証で、自己署名の証明書を置いて `https://…:5511/E3/` が 200 を返した |
 | ~~U8~~ | ~~イメージに `libssl.so.3` が入っているか~~ | 2 | **確認済み**(フェーズ 1 のビルドで確認)。`libssl.so.3` と `libcrypto.so.3` が `/lib/x86_64-linux-gnu/` にある |
 | U9 | Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か | 3 | Mirakurun の API 定義を読む |
@@ -161,4 +161,4 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 | U11 | コマンドラインから `ReloadSetting` を呼ぶ手段 | 4 | `EpgTimerSrv` の制御コマンド、Lua API(`edcb.ReloadSetting`)を調べる |
 | U12 | スキャンにかかる時間 | 4 | 実機確認をユーザに依頼 |
 | U13 | 録画中か・直近の予約を取得する手段 | 4 | Legacy WebUI / EMWUI の API、Lua API を調べる |
-| U14 | pcscd が polkit 有効でビルドされている場合の、root / 非 root クライアントの扱い | 5 | pcsc-lite の `auth.c` を読む |
+| U14 | pcscd が polkit 有効でビルドされている場合の、root / 非 root クライアントの扱い | 5 | **一部確認**(フェーズ 2 の実機確認、2026-10-05)。mirakc イメージの pcscd(Debian sid の 2.3.3-1、`polkitd` に依存)は、polkit と D-Bus の無いコンテナでは root のクライアント(`arib-b25-stream-test`)も拒み、`B_CAS_CARD::init() : code=-3` で復号できない。mirakc は `decode=1` のストリームに 404 を返し、BonDriver(`DECODE_B25=1`)は受信できない。`pcscd --disable-polkit` で復号できた。同じ版の pcscd を持つ 10/4 22:00 のイメージで視聴できていた理由は未確認。非 root のクライアントの扱いと `auth.c` はフェーズ 5 で読む |
