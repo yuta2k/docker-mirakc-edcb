@@ -143,9 +143,9 @@ stopping=
 terminate_edcb() {
   # terminate EpgTimerSrv and all child processes such as EpgDataCap_Bon
   stopping=1
-  [ -n "${PGID_SRV:-}" ] || return
+  [ -n "${PGID_SRV:-}" ] || return # still starting; handled right after the start
   log "stopping EpgTimerSrv"
-  kill -TERM -"$PGID_SRV" 2>/dev/null
+  kill -TERM -"$PGID_SRV" 2>/dev/null || kill -TERM "$SRV_PID" 2>/dev/null
   pidwait -g "$PGID_SRV" >/dev/null 2>&1
 }
 
@@ -155,13 +155,24 @@ trap terminate_edcb HUP INT QUIT TERM
 log "starting EpgTimerSrv as $PUID:$PGID (groups: ${groups:-none})"
 setsid setpriv --reuid="$PUID" --regid="$PGID" "$@" EpgTimerSrv &
 SRV_PID=$!
-PGID_SRV=$(ps -o pgid= -p "$SRV_PID" | tr -d ' ')
+# setsid makes EpgTimerSrv the leader of a new process group whose ID is its
+# PID. Wait until that has happened: before it, the process is still in the
+# entrypoint's group, and signalling that group would hit everything.
+i=0
+while [ "$(ps -o pgid= -p "$SRV_PID" | tr -d ' ')" != "$SRV_PID" ] && kill -0 "$SRV_PID" 2>/dev/null && [ $i -lt 50 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+PGID_SRV=$SRV_PID
+# a stop signal that arrived while starting
+if [ -n "$stopping" ]; then terminate_edcb; fi
 
 # wait for terminate_edcb() or an unexpected exit of EpgTimerSrv
 wait "$SRV_PID"
 status=$?
 if [ -z "$stopping" ]; then
   warn "EpgTimerSrv exited unexpectedly (status $status)"
+  # stop the children left in its process group
   kill -TERM -"$PGID_SRV" 2>/dev/null
   pidwait -g "$PGID_SRV" >/dev/null 2>&1
 fi

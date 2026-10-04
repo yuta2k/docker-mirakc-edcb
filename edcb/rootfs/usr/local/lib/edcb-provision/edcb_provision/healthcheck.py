@@ -44,23 +44,30 @@ def http_target(srv_ini):
     if not m:
         return None
     host = (m.group(1) or "127.0.0.1").strip("[]")
-    if host in ("0.0.0.0", "::"):
+    # a wildcard address: connect over loopback of the same family
+    # ("[::]:5510" listens on IPv6 only; "+5510" on both)
+    if host == "0.0.0.0":
         host = "127.0.0.1"
+    elif host == "::":
+        host = "::1"
     return host, int(m.group(2)), "s" in m.group(3)
 
 
 def _probe(host, port, tls, timeout=5):
+    # The access control list is applied before the TLS handshake and closes the
+    # connection without an answer; a connection closed that way counts as up.
+    closed = (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError, ssl.SSLZeroReturnError)
     with socket.create_connection((host, port), timeout=timeout) as sock:
-        if tls:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            sock = ctx.wrap_socket(sock)
         try:
+            if tls:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                sock = ctx.wrap_socket(sock)
             sock.sendall(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n")
             sock.recv(64)
-        except (ConnectionResetError, BrokenPipeError):
-            pass  # closed by the access control list
+        except closed:
+            pass
 
 
 def main(root="/var/local/edcb"):

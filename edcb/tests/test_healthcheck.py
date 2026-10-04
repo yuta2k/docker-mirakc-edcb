@@ -19,6 +19,9 @@ def test_http_target():
     assert target("[SET]\nEnableHttpSrv=1\nHttpPort=+5510,5520\n") == ("127.0.0.1", 5510, False)
     assert target("[SET]\nEnableHttpSrv=1\nHttpPort=192.168.0.2:5510\n") == ("192.168.0.2", 5510, False)
     assert target("[SET]\nEnableHttpSrv=1\nHttpPort=[::1]:5510r\n") == ("::1", 5510, False)
+    # wildcards: loopback of the same family ("[::]:5510" is IPv6 only)
+    assert target("[SET]\nEnableHttpSrv=1\nHttpPort=[::]:5510\n") == ("::1", 5510, False)
+    assert target("[SET]\nEnableHttpSrv=1\nHttpPort=0.0.0.0:5510\n") == ("127.0.0.1", 5510, False)
 
 
 def _server(handler):
@@ -41,6 +44,12 @@ def test_probe_answer_and_acl_close():
     healthcheck._probe("127.0.0.1", port, False)
     port = _server(lambda c: None)  # closed without an answer, like a denied ACL
     healthcheck._probe("127.0.0.1", port, False)
+
+
+def test_probe_tls_closed_by_acl():
+    # CivetWeb closes a denied connection before the TLS handshake
+    port = _server(lambda c: None)
+    healthcheck._probe("127.0.0.1", port, True)
 
 
 def test_probe_refused():
