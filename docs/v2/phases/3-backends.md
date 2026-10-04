@@ -76,4 +76,55 @@
 
 ## 実施記録
 
-(着手したエージェントが書く)
+### 先に確認したこと
+
+- U9: 前提どおり(`facts.md`)。
+- U10: EDCB も BonDriver も選局し直さない(`facts.md`)。ユーザと相談し、再接続をこのフェーズに入れた(`decisions.md` の A5)。
+
+### 行ったこと
+
+- BonDriver のパッチ 3 本(`edcb/patches/bondriver/`)。ホスト名(接続のたびに `getaddrinfo`、IPv4)、応答バッファの長さの確認(ヘッダ 512 バイト、本体は 16 MiB まで拡張)、受信中の切断からの再接続(1、2、4 秒、以降 5 秒ごと。`SetChannel` / `CloseTuner` で即座に止まる)。
+- 接続先の環境変数、取得と保存、BonDriver の生成、チューナー数(`edcb_provision/backends.py`)。`edcbctl backends`。
+- 偽の Mirakurun(`edcb/tests/fake_mirakurun.py`)。シナリオは `dual`(両対応のみ)、`split`(地上波専用 + 衛星専用)、`mixed`(混在。BS のみ、CS のみ、GR + CS を含む)、`sky`(`SKY` を含む)。ストリームを途中で切る、応答を遅らせる、のオプションを持つ。
+- 結合テスト `tests/integration/phase3.sh`(T30〜T39)。`scripts/check.sh` が、`# shellcheck shell=` で始まる読み込み用のスクリプトも shellcheck にかけるようにした(`lib.sh`、`phase*.sh` が対象外だった)。
+- `compose.yml` には、フェーズ 2 の時点で `MIRAKC_ADDRESS` / `MIRAKC_PORT` が無かった。変更なし。
+
+### 設計から変えた点・決めた点
+
+`design.md` の 3.2、5.1、7.1、7.3 に書き足した。要点:
+
+- `DEFAULT` の URL を省略すると同梱の mirakc。`EDCB_BACKEND_DEFAULT_TUNERS` だけを書ける。
+- `MIRAKC_ADDRESS` / `MIRAKC_PORT` は片方だけでもよい(v1 の entrypoint と同じ既定値を補う)。
+- 生成した BonDriver の記録は、状態ファイルではなく `/usr/local/lib/edcb/.edcb-provision.json`(コンテナ内のファイルのため)。
+- 保存済みの接続先の情報は、URL が変わったら使わない。
+- 取得は接続先ごとに並行。1 回の要求は 5 秒まで、全体は 30 秒まで。
+
+### 検証
+
+- BonDriver のパッチは、ホストでビルドした `.so` を小さなプログラムで読み込み、偽サーバに対して確認した(2026-10-05)。ホスト名 `localhost` で接続できる。サーバが 2 回ストリームを切っても、それぞれ約 1 秒で同じ URL を要求し直す。サーバを 8 秒止めても、4 回目で再接続する。再接続を待っている間の `CloseTuner` は 0.02 秒で終わる。名前を引けないホストでは `OpenTuner` が失敗するだけで落ちない。1.1 MB(3000 チャンネル)の `/api/channels` を読める。16 MiB を超える本体と 512 バイトを超えるヘッダは、失敗として扱われる。
+- `scripts/check.sh`: すべて PASS(pytest 105 件)。
+- `tests/integration/run.sh`: **未実施**(Docker を実行できないため、ユーザに依頼中)。
+
+### 受け入れ条件の状況
+
+| 条件 | 状況 |
+|---|---|
+| BonDriver のパッチが当たり、ビルドが通る | ホストでのビルドは確認。イメージのビルドは結合テスト T0 / T30 で確認する(未実施) |
+| 偽サーバにホスト名で `EpgDataCap_Bon -d` が到達 | T32(未実施) |
+| 2 つの接続先で 6 組の `.so` と `.ini` | pytest で確認。コンテナ内は T31(未実施) |
+| 別の偽サーバに到達(別 ini) | ホストのビルドで確認。コンテナ内は T33(未実施) |
+| 切断で再接続 | ホストのビルドで確認。コンテナ内は T34(未実施) |
+| 7.2 の分類(全パターン) | pytest で確認 |
+| セクションが無いときだけ `Count` | pytest で確認 |
+| `TUNERS` 明示で毎起動上書き | pytest で確認。コンテナ内は T39(未実施) |
+| 届かない接続先があっても起動、上限内 | pytest で確認。コンテナ内は T35(未実施) |
+| 2 回目以降は保存済みの情報 | pytest で確認。コンテナ内は T36(未実施) |
+| 不正な接続先名は無視・警告 | pytest で確認。コンテナ内は T35(未実施) |
+| `MIRAKC_ADDRESS` / `MIRAKC_PORT` だけの構成 | pytest で確認。コンテナ内は T38(未実施) |
+| pytest がすべて通る | 確認 |
+
+### 次のフェーズへの申し送り
+
+- このフェーズでは ChSet4 を作らないので、新しい接続先の BonDriver は EDCB から見えない(`edcbctl backends` の `ChSet4` 列)。
+- `edcbctl backends` の「スキャン以降のチャンネル構成の変化」は、スキャンの記録ができるフェーズ 4 で埋める。
+- 接続先の保存済み情報(`.provision/backend-<名前>.json`)には、`/api/channels` の `type`、`channel`、`name` を並び順のまま入れてある。フェーズ 4 の分割とずれの検知に使える。
