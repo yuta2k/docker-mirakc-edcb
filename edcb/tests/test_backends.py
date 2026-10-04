@@ -459,3 +459,67 @@ def test_edcbctl_backends(tree, fake, capsys):
     env = {"EDCB_PROVISION_ROOT": tree.root, "EDCB_BACKEND_DEFAULT_URL": a.url}
     assert cli.main(["backends"], env) == 0
     assert capsys.readouterr().out.startswith(f"DEFAULT: {a.url} (reachable)\n")
+
+
+# ----- limits and failures (code review of phase 3) -----
+
+
+def test_names_and_hosts_fit_the_bondriver_buffers():
+    longest = "A" * backends.MAX_NAME_LEN
+    host = "h" * backends.MAX_HOST_LEN
+    (b,), warnings = backends.parse_env({f"EDCB_BACKEND_{longest}_URL": f"http://{host}:40772"})
+    assert warnings == []
+    # g_TunerName is char[128]; ini lines are read up to 255 bytes
+    assert len(b.bondriver("T")[:-3]) < 128
+    assert max(len(line) for line in b.bondriver_ini().splitlines()) <= 255
+
+    found, warnings = backends.parse_env({f"EDCB_BACKEND_{longest}A_URL": "http://h:1"})
+    assert [x.name for x in found] == ["DEFAULT"]  # no valid URL left: the bundled mirakc
+    assert any("invalid backend name" in w for w in warnings)
+    found, warnings = backends.parse_env({"EDCB_BACKEND_VM_URL": f"http://{host}h:1"})
+    assert found == []
+    assert any("longer than" in w for w in warnings)
+
+
+def test_a_broken_http_response_is_reported_with_its_reason():
+    import threading
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+
+    def serve():
+        for _ in range(2):
+            c, _ = srv.accept()
+            c.recv(4096)
+            c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n[")
+            c.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    port = srv.getsockname()[1]
+    b = backends.Backend("VM", f"http://127.0.0.1:{port}", "127.0.0.1", port)
+    info = backends.fetch_all([b], 5)["VM"]
+    srv.close()
+    assert info.source == "none"
+    assert info.error != "timed out"
+
+
+def test_a_failed_update_is_retried_on_the_next_start(tree, fake, monkeypatch):
+    a = fake("dual")
+    b = fake("dual")
+    run(tree, {"EDCB_BACKEND_DEFAULT_URL": a.url}, boot=True)
+    real = backends._write_lib_file
+
+    def failing(path, data, mode):
+        if path.endswith(".so.ini"):
+            raise OSError(28, "No space left on device")
+        real(path, data, mode)
+
+    monkeypatch.setattr(backends, "_write_lib_file", failing)
+    r = run(tree, {"EDCB_BACKEND_DEFAULT_URL": b.url}, boot=True)
+    assert any("cannot write" in w for w in r.warning_lines)
+    monkeypatch.setattr(backends, "_write_lib_file", real)
+    r = run(tree, {"EDCB_BACKEND_DEFAULT_URL": b.url}, boot=True)
+    assert not any("not created by the provisioning" in w for w in r.warning_lines)
+    conf = read_ini(os.path.join(tree.lib, "BonDriver_LinuxMirakc.so.ini"))
+    assert conf.get("GLOBAL", "SERVER_PORT") == str(b.port)

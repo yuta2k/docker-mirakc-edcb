@@ -14,13 +14,13 @@ the thread. Stopping now shuts the socket down for both directions under
 a lock (abort()), which wakes up a blocked recv() or connect() at once;
 further connects fail until resume(). The socket is initialized to -1.
 ---
- src/BonDriver_LinuxMirakc.cpp | 60 ++++++++++++++++++++++++++--
+ src/BonDriver_LinuxMirakc.cpp | 63 +++++++++++++++++++++++++++--
  src/BonDriver_LinuxMirakc.hpp |  3 ++
  src/http_proc.hpp             | 75 +++++++++++++++++++++++++++++++++--
- 3 files changed, 131 insertions(+), 7 deletions(-)
+ 3 files changed, 134 insertions(+), 7 deletions(-)
 
 diff --git a/src/BonDriver_LinuxMirakc.cpp b/src/BonDriver_LinuxMirakc.cpp
-index f7142ff..61521bd 100644
+index f7142ff..b2184bc 100644
 --- a/src/BonDriver_LinuxMirakc.cpp
 +++ b/src/BonDriver_LinuxMirakc.cpp
 @@ -120,6 +120,7 @@ CBonTuner::CBonTuner()
@@ -70,7 +70,7 @@ index f7142ff..61521bd 100644
  		}
  		
  		pThis->m_pGrabTsData->put_TsStream( (BYTE *)buf, ret );
-@@ -634,11 +643,56 @@ void *CBonTuner::RecvThread( void *pParam )
+@@ -634,11 +643,59 @@ void *CBonTuner::RecvThread( void *pParam )
  	return 0;
  }
  
@@ -101,14 +101,17 @@ index f7142ff..61521bd 100644
 +			usleep( 100 * 1000 );
 +		}
 +		rc = conn->sendGetRequest_WaitHeader( m_szStreamUrl, szHeader, respHeader, sizeof( respHeader ), &respCode );
++		// abort() may have come between socket() and connect(), when shutting
++		// the socket down does not stop the connect; check again after it
++		if( conn->isAborted() ) {
++			conn->disconnect();
++			return FALSE;
++		}
 +		if( rc == 0 && respCode == 200 ) {
 +			ERROR_OUTPUT( "%s: reconnected after %d attempt(s)", g_TunerName, attempt );
 +			return TRUE;
 +		}
 +		conn->disconnect();
-+		if( conn->isAborted() ) {
-+			return FALSE;
-+		}
 +		// do not fill the log while the server is down: the first few, then about once a minute
 +		if( attempt <= 3 || attempt % 12 == 0 ) {
 +			ERROR_OUTPUT( "%s: reconnect failed (attempt:%d, rc:%d, resp:%d)", g_TunerName, attempt, rc, respCode );
