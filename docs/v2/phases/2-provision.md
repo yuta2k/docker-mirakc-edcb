@@ -155,11 +155,11 @@ HTTPS(コンテナ内 5511)と SSE 専用ポート(5520 / 5521)は `compose.yml`
 - `edcb.env-sample` を作った。`edcb/overrides/.gitkeep` を足した(`.gitignore` も更新)。
 - `chlegacyset.sh` を削除。Setup.md の該当箇所を `edcbctl allow-setting` に直し、ACL、`PUID` / `PGID`、初回に自動で入る設定の説明を最小限直した。
 - `build.yml` に `test` ジョブ(`pipx run pytest -v edcb/tests`)を足した。
-- `edcb/tests/`: pytest 55 件。
+- `edcb/tests/`: pytest 56 件(コードレビューでの修正後)。
 
 ### 検証結果
 
-- pytest: Python 3.12(`uv run --python 3.12 --with pytest`)で 55 件すべて成功。
+- pytest: Python 3.12(`uv run --python 3.12 --with pytest`)で 55 件すべて成功(コードレビューでの修正後は 56 件)。
 - shellcheck 0.11(`entrypoint.sh`、`patch-legacy-util.sh` ほか)、actionlint 1.7.12: エラー 0。
 - `docker compose config`: 一時ディレクトリの `compose.yml` 単体、sample を重ねたもの、`EDCB_HOST_HTTP_PORT=15510` で成功。
 - 実データの ini のコピー(スクラッチ内)で、Docker を使わずにプロビジョニングを実行し、既存のキーが変わらないことと、2 回目が `no changes` になることを確認した。初期ファイル(`Bitrate.ini`、`BonCtrl.ini`)が `make setup_ini` の変換結果とバイト単位で一致することも確認した。
@@ -215,6 +215,14 @@ Docker が要る確認は、ユーザに sudo でスクリプトを 2 回実行�
 
 - **HTTPS と SSE 専用ポートを既定では公開しない**(ユーザと合意)。当初は `compose.yml` で 5511 / 5520 / 5521 も同じ番号で公開していた。2 台目の構成でホストの 5511 を HTTP(コンテナの 5510)に割り当てていると、HTTPS のつもりで開いたポートが HTTP につながり、ブラウザが `SSL_ERROR_RX_RECORD_TOO_LONG` を出す(実機で発生)。HTTPS を使う利用者が `compose.override.yml` で番号を選んで足す形にした。コンテナ内の番号は EMWUI の推奨(`5510,5520,5511s,5521s`)のまま。`EDCB_HOST_HTTPS_PORT`、`EDCB_HOST_SSE_PORT`、`EDCB_HOST_SSE_HTTPS_PORT` は廃止した。
 - 修正後の `docker compose config`(`compose.yml` 単体、sample を重ねたもの)は成功し、公開されるのは 4510 と 5510 だけになった。イメージは変えていないので、Docker での検証(上の表)はやり直していない。
+
+### コードレビューでの修正
+
+`/code-review` の指摘(3 件、いずれも重大度は低い)を直した。
+
+- entrypoint: `setsid` が新しいプロセスグループを作る前に `ps` でグループ ID を読むと、entrypoint 自身のグループ(1)を読むことがあった。その場合、停止時にすべてのプロセスへシグナルを送り、`pidwait` が戻らない。また、起動の直後に届いた SIGTERM では何も止めず、SIGKILL まで待っていた。どちらも v1 からあった。EpgTimerSrv の PID がグループ ID になったのを確かめてから進み、起動中に届いた終了シグナルは起動の直後に処理するようにした。
+- ヘルスチェック: `[::]:5510`(IPv6 のみで待ち受ける)のときは `::1` に接続する。HTTPS のポートで ACL がハンドシェイクの前に接続を切った場合も、動いているとみなす。テストを 2 件足した(pytest は 56 件)。
+- 修正後に、Docker の検証スクリプト一式をもう一度実行し、15 項目すべて通った(`docker stop` は約 3.2 秒、終了コード 0)。
 
 ### 実機確認で見つかった不具合(mirakc イメージ)
 
