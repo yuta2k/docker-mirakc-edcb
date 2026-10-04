@@ -131,9 +131,9 @@ jobs:
             "" \
             "$RUN_URL" \
             "" \
-            '```' \
+            '~~~~~~~~' \
             "$(tail -n 60 "$RUNNER_TEMP/build.log")" \
-            '```')
+            '~~~~~~~~')
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else

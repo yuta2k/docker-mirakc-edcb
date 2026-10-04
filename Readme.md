@@ -47,6 +47,24 @@ EDCB の設定ファイルには介入しないため、セットアップに手
 EDCB などの上流のバージョンは `edcb/Dockerfile` の `ARG` の既定値で固定しています。  
 `git pull` でこのリポジトリを更新すると、固定したバージョンも更新されます。
 
+#### 自分で作った `compose.yml` を使っている場合
+
+以前のバージョンでは、`compose-sample.yml` をもとに各自が `compose.yml` を作っていました。  
+現在は `compose.yml` をこのリポジトリで管理しているため、手元に `compose.yml` があると `git pull` が
+`untracked working tree files would be overwritten by merge: compose.yml` で止まります。  
+**手元の `compose.yml` を消さずに**、次の手順で移行してください。
+
+1. 手元の `compose.yml` を別名で退避する(例: `mv compose.yml compose.yml.old`)
+2. `git pull` する
+3. `compose.override-sample.yml` を `compose.override.yml` にコピーし、退避したファイルから自分の環境の設定を書き写す  
+   チューナーの `devices`、録画先の `volumes`、`user`、`group_add`、ビルド引数、環境変数など。  
+   ホストのポートを変えていた場合は `ports: !override` で書きます
+4. `docker compose config` で、退避したファイルと同じ内容になっているか確認する
+5. `docker compose build` と `docker compose up -d` を実行する
+
+`compose.yml` は編集しないでください。環境ごとの設定はすべて `compose.override.yml` に書きます。  
+なお、コンテナ名とボリューム名を固定しなくなったため、コンテナ名は `<プロジェクト名>-edcb-1` のように変わり、mirakc の EPG キャッシュは新しいボリュームに作り直されます。
+
 ### EDCB へのパッチ
 
 `edcb/patches/edcb/` 下のパッチを EDCB に当ててビルドしています。
@@ -61,7 +79,7 @@ EDCB などの上流のバージョンは `edcb/Dockerfile` の `ARG` の既定�
 パッチは `edcb/Dockerfile` で固定した EDCB のバージョンに当たることを確認しています。パッチが当たらない場合はビルドが失敗します。
 
 以前のビルド引数 `EDCB_CHECKOUT`、`BON_DRIVER_CHECKOUT`、`EMWUI_CHECKOUT` は廃止しました。  
-指定していても無視されるので、`compose.yml` などから削除してください。  
+指定していても無視されるので、`compose.override.yml`(移行前は手元の `compose.yml`)から削除してください。  
 別のバージョンでビルドしたい場合は、ビルド引数 `EDCB_REF`(タグ)と `EDCB_COMMIT`(そのタグのコミット)、`BON_DRIVER_COMMIT`、`EMWUI_COMMIT` を指定します。
 
 ### 外部の mirakc・Mirakurun を使用する場合

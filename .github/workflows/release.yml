@@ -1,12 +1,13 @@
 name: release
 
-# Builds the edcb image for amd64 and arm64 and pushes it to GHCR when a v* tag is pushed.
+# Builds the edcb image for amd64 and arm64 and pushes it to GHCR when a v<semver> tag is pushed.
 # Image tags: <version>, <major>.<minor> and latest (latest is skipped for pre-releases).
 # Upstream versions are recorded as image labels by edcb/Dockerfile.
 
 on:
   push:
-    tags: ['v*']
+    # semver tags only (v1.2.3, v1.2.3-rc.1); other v* tags would produce no image tags
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
 
 permissions:
   contents: read
@@ -49,6 +50,16 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+
+      - name: Check tags
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          if [ -z "$TAGS" ]; then
+            echo "::error::no image tags for $GITHUB_REF_NAME (expected a semver tag such as v1.2.3)"
+            exit 1
+          fi
+          echo "$TAGS"
 
       # build and test locally first so that a broken image is never pushed
       - name: Build
