@@ -2,4 +2,5 @@
 edcb/ini/*
 
 compose.yml
+.env
 mirakc/config.yml

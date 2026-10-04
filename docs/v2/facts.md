@@ -104,6 +104,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせは未検証で�
 - `ports: !override` で置き換えになる。
 - `env_file` の `required: false` で、ファイルが無くてもエラーにならない。
 - `depends_on` の `required: false` で、依存先のサービスが無効でも起動できる。
+- プロジェクト名は、指定が無ければ `compose.yml` のあるフォルダの名前になる。`.env` の `COMPOSE_PROJECT_NAME` で変えられる(`docker compose config` の `name` で確認)。コンテナ、ネットワーク、`name:` の無いボリューム、ビルドしたイメージのタグ(`<プロジェクト名>-<サービス名>`)は、プロジェクト名で区別される。
 
 ## 未確認(担当フェーズで確認すること)
 

@@ -30,6 +30,7 @@
 ### 3. compose
 
 - `compose-sample.yml` をもとに、git 管理する `compose.yml` と `compose.override-sample.yml` を作る(`design.md` の 2 章)。`compose-sample.yml` は削除する。
+- `container_name` と、ボリュームの `name:` を書かない(`decisions.md` の D5)。
 - **このフェーズでは環境変数の仕様は変えない。** `MIRAKC_ADDRESS` / `MIRAKC_PORT` は `compose.yml` に残す。`env_file`、`overrides` のマウント、ポートの追加はフェーズ 2 以降で足す。
 - `user:` の例は `compose.override-sample.yml` に移す(フェーズ 2 で PUID / PGID に置き換える)。
 - `.gitignore` を更新する。
@@ -60,6 +61,7 @@
 - [ ] パッチをわざと壊すと、ビルドが失敗する
 - [ ] ビルドしたイメージを一時ディレクトリの構成で起動し、`/legacy/` と `/EMWUI/` が HTTP 200 を返す(U2)。ACL は一時構成の `EpgTimerSrv.ini` で調整する
 - [ ] `docker compose config` が、`compose.yml` 単体でも、`compose.override-sample.yml` を override として重ねても成功する
+- [ ] `docker compose config` の結果に、固定のコンテナ名とボリューム名が現れない。`COMPOSE_PROJECT_NAME` を変えると、コンテナ名とボリューム名がそれに従って変わる
 - [ ] 3 つのワークフローが `actionlint`(使えれば)を通る
 
 ## 検証

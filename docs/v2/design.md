@@ -34,6 +34,8 @@ docs/
 ## 2. compose.yml
 
 - **共通側にホスト固有の値を書かない。** チューナーの `devices`、録画先の `volumes` は `compose.override.yml` に書く。
+- **`container_name` を書かない。名前付きボリュームに `name:` を書かない**(`decisions.md` の D5)。mirakc の EPG キャッシュのボリュームは `mirakc-epg` というキーだけで定義し、実際の名前はプロジェクト名から決まるようにする。
+- **プロジェクト名はフォルダ名から決まる。** 同じ名前のフォルダに clone した構成が同じホストに 2 つあると、Compose は両方を同じプロジェクトとして扱い、片方での `up` がもう片方のコンテナを作り直し、`down` が削除する。2 つ目の構成では `.env` に `COMPOSE_PROJECT_NAME=<別の名前>` を書く。これは `Setup.md` に注意として載せる。
 - edcb サービス:
   - `image:` に GHCR のイメージ、`build:` にローカルビルドの両方を書く(pull できなければビルドできる)
   - `env_file` は `./edcb.env` を `required: false` で読む
