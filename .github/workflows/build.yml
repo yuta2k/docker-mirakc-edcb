@@ -1,0 +1,60 @@
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: [main, v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  edcb:
+    name: edcb (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          # native arm64 runner (no QEMU); checks that EDCB builds on arm64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: edcb
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: edcb:ci
+          cache-from: type=gha,scope=edcb-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=edcb-${{ matrix.arch }}
+
+      - name: Smoke test
+        run: .github/scripts/smoke-test.sh edcb:ci
+
+  mirakc:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: mirakc
+          platforms: linux/amd64
+          cache-from: type=gha,scope=mirakc
+          cache-to: type=gha,mode=max,scope=mirakc
