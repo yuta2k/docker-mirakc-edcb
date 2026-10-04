@@ -156,8 +156,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 | ~~U6~~ | ~~SIGTERM を受けた EpgTimerSrv / EpgDataCap_Bon が録画ファイルを正常に閉じるか、所要時間~~ | 2 | **確認済み**(F14)。正常に閉じる。実機の録画中で 2.2 秒。`stop_grace_period` は 2 分にした |
 | ~~U7~~ | ~~Linux 版の `ssl_cert.pem` の置き場所(`/var/local/edcb` か)~~ | 2 | **確認済み: `/var/local/edcb/ssl_cert.pem`**(`HttpServer.cpp` が `Common.ini` と同じフォルダの `ssl_` に `cert.pem` を付けて組み立てる。`ssl_peer.pem`、`glpasswd` も同じフォルダ)。フェーズ 2 の検証で、自己署名の証明書を置いて `https://…:5511/E3/` が 200 を返した |
 | ~~U8~~ | ~~イメージに `libssl.so.3` が入っているか~~ | 2 | **確認済み**(フェーズ 1 のビルドで確認)。`libssl.so.3` と `libcrypto.so.3` が `/lib/x86_64-linux-gnu/` にある |
-| U9 | Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か | 3 | Mirakurun の API 定義を読む |
-| U10 | 切断時に EDCB 側が再選局するか | 3 | `BonCtrl` の受信監視部分を読む。しないなら BonDriver 側に再接続を入れるかユーザに相談 |
+| ~~U9~~ | ~~Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か~~ | 3 | **確認済み: 前提どおり**(`Chinachu/Mirakurun` の `563a9e7`、2026-09-27)。`api.d.ts` の `Channel` は `type`(`GR` / `BS` / `CS` / `SKY`)と `channel`(文字列)、`TunerDevice` は `types`(同じ 4 種の配列)を持つ。`/api/channels` は設定ファイルの並び順のまま返し、`isDisabled` のチャンネルと不正な定義は除く(`src/Mirakurun/Channel.ts` の `_load`)。`/api/status` もある |
+| ~~U10~~ | ~~切断時に EDCB 側が再選局するか~~ | 3 | **確認済み: しない**(`work-plus-s-260904`)。`BonCtrl/BonDriverUtil.cpp` は `GetTsStream` が空なら何もせず次の周期を待つだけ。`SetChannel` の失敗時に 0.5 秒後に 1 回だけ再試行するが、受信が止まったことを理由に選局し直す処理は無い。`TunerBankCtrl.cpp` も、録画中にチャンネルを送り直すのは予約の切り替え時だけ。BonDriver 側は `RecvThread` が切断で終わり、次の `SetChannel` まで受信しない(F4)。つまり録画中に接続が切れると、その録画は終わりまで空になる |
 | U11 | コマンドラインから `ReloadSetting` を呼ぶ手段 | 4 | `EpgTimerSrv` の制御コマンド、Lua API(`edcb.ReloadSetting`)を調べる |
 | U12 | スキャンにかかる時間 | 4 | 実機確認をユーザに依頼 |
 | U13 | 録画中か・直近の予約を取得する手段 | 4 | Legacy WebUI / EMWUI の API、Lua API を調べる |
