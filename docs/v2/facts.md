@@ -101,7 +101,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 ### F6. EMWUI
 
 - **2026-04-19 に「E3」(EMWUI 3)がベータ公開され(コミット `1c95d4c`)、2026-07-17 に旧 `HttpPublic/EMWUI/` が削除された(コミット `a7aeb2d`)。** 現在の既定ブランチは `E3`。WebUI のパスは `/E3/`。旧版はブランチ `EMWUI` に残っている。
-- これまでのイメージはビルド時点の HEAD を使っていたので、既定ブランチが `E3` になってからビルドした利用者は、すでに E3 を使っている。ボリュームには `cp -ru` で旧 `EMWUI/` と `E3/` が並んで残る(この開発環境の `edcb/ini/HttpPublic` で確認)。既定ブランチが切り替わった日付は未確認。
+- これまでのイメージはビルド時点の HEAD を使っていたので、既定ブランチが `E3` になってからビルドした利用者は、すでに E3 を使っている。ボリュームには `cp -ru` で旧 `EMWUI/` と `E3/` が並んで残る(v1 から使い続けているボリュームの `HttpPublic` で確認)。既定ブランチが切り替わった日付は未確認。
 - 設定変更の許可の処理は、E3 でも `HttpPublic/api/util.lua` にある(固定したコミットで確認)。
 - README に「PWA や TS-Live! に SSL/TLS による通信が必須なため、HTTPS での運用を前提」とある。
 - 視聴ページは `Cross-Origin-Embedder-Policy: require-corp` と `Cross-Origin-Opener-Policy: same-origin` を返し、TS-Live! は `SharedArrayBuffer` と WebGPU を使う。HTTP + LAN の IP アドレスでは動かない。

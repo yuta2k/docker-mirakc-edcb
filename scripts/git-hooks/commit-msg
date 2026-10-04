@@ -1,0 +1,4 @@
+#!/bin/sh
+# Reject a commit message that contains machine-specific information.
+# Enable the hooks in a clone with: git config core.hooksPath scripts/git-hooks
+exec "$(dirname "$0")/../check-local-info.sh" --message-file "$1"

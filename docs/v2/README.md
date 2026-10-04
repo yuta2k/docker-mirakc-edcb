@@ -55,8 +55,22 @@
 環境によっては、エージェントが Docker デーモンを使えない(権限が無い)ことがある。そのときは次のようにする。
 
 - デーモンが要らない確認(`docker compose config`、pytest、シェルスクリプトの構文確認など)は自分で行う。
-- デーモンが要る確認(`docker build`、`docker run`、`docker compose up`)は、実行するコマンドを順番にまとめてユーザに依頼し、出力を受け取ってから結果を判断する。往復を減らすため、1 回分の確認は 1 つのスクリプトにまとめ、出力をファイルに残す形にする。
+- デーモンが要る確認(`docker build`、`docker run`、`docker compose up`)は、実行するコマンドを順番にまとめてユーザに依頼し、出力を受け取ってから結果を判断する。往復を減らすため、1 回分の確認は 1 つのスクリプトにまとめ、出力をファイルに残す形にする。繰り返し使う確認は `tests/integration/` に入れる(「検証の道具」)。
 - 依頼した確認の結果が出るまで、その受け入れ条件は「未確認」として扱う。
+
+### 検証の道具
+
+フェーズをまたいで使う確認は、リポジトリに入っている。フェーズで確認を足すときは、スクラッチに置かず、ここに足すこと。
+
+| 道具 | 内容 | Docker デーモン |
+|---|---|---|
+| `scripts/check.sh` | pytest、shellcheck、actionlint、`docker compose config`、環境固有の情報の混入チェック。CI の `check` ジョブと同じもの。shellcheck と actionlint は `scripts/install-tools.sh` で `.tools/` に入る | 不要 |
+| `tests/integration/run.sh` | イメージをビルドし、コンテナを起動して確かめる結合テスト。使い方は `tests/integration/README.md`。root で実行する(`sudo tests/integration/run.sh`)。結果はログに `RESULT <番号>: PASS / FAIL / SKIP` で残る。CI でも実行する | 必要 |
+| `scripts/check-local-info.sh` | 環境固有の情報(ホームディレクトリのパス、ホスト名、LAN のアドレスなど)がコミットに入るのを止める。`git config core.hooksPath scripts/git-hooks` で、コミット時に自動で動く。その環境だけの禁止パターンは、git 管理外の `.local-info-patterns` に書く(1 行に 1 つの拡張正規表現) | 不要 |
+
+- コミットの前に `scripts/check.sh` を通す。
+- entrypoint、プロビジョニング、Dockerfile を変えたフェーズでは、`tests/integration/run.sh` を全項目実行し、そのフェーズの確認を `tests/integration/phase<番号>.sh` に足す。
+- 検証の手順やテスト用のデータに、特定の環境の情報(パス、プロジェクト名、アドレス、チャンネル構成)を書かない。
 
 ### 判断に迷ったとき
 

@@ -20,8 +20,8 @@
 - **edcb のベースイメージ**: `ubuntu:24.04` から `ubuntu:26.04`(LTS)に上げる。
   - 先に、26.04 が公開されているか、EDCB のビルドに要るパッケージ(`liblua5.2-dev`、`lua-zlib`、`liblua5.2-0`、`ffmpeg`、`python3`、`procps`、`tzdata`)があるかを確かめる。無いものがあれば代わりを決める。
   - ほかのベース(Debian の安定版など)が明らかに適していれば、比べて提案してよい。決める前にユーザに確認する。比べる観点は、上記のパッケージの有無、ffmpeg の版と `--enable-libvpl`(作業 2)、サポート期間、arm64 対応。
-  - EDCB と BonDriver のビルド、パッチの適用、スモークテスト、フェーズ 2 の検証スクリプト一式(空のディレクトリでの起動、権限、ヘルスチェック、HTTPS)が通ること。
-  - Python の版はベースイメージに従う。CI の pytest(`build.yml` の `test` ジョブ)が、イメージと同じ版の Python で動くようにする(ランナーの Python が違うなら `actions/setup-python` で版を合わせるか、ビルドしたイメージの中で pytest を動かす)。
+  - EDCB と BonDriver のビルド、パッチの適用、スモークテスト、結合テスト(`tests/integration/run.sh`。空のディレクトリでの起動、権限、ヘルスチェック、HTTPS)が通ること。
+  - Python の版はベースイメージに従う。pytest(`scripts/check.sh`。CI では `build.yml` の `check` ジョブ)が、イメージと同じ版の Python で動くようにする(`scripts/check.sh` の Python の版の指定を合わせる。ランナーに uv が無く、ランナーの Python の版が違うなら、`actions/setup-python` で版を合わせるか、ビルドしたイメージの中で pytest を動かす)。
 - **mirakc のベースイメージを固定する**: 現在の `FROM mirakc/mirakc:debian` は動くタグで、再ビルドのたびに mirakc 本体と Debian sid のパッケージが変わる。フェーズ 2 の実機確認で、pcscd が polkit 有効の版に変わっていてスクランブル解除できなくなった(`facts.md` の U14)。
   - 版のタグ(例: `mirakc/mirakc:<版>-debian`。実際のタグの形は Docker Hub で確認する)とダイジェストで固定し、`ARG` の既定値を唯一の定義場所にする(`decisions.md` の A2 と同じ考え方)。
   - `upstream-check.yml` に、mirakc の新しい版を検出して固定を更新する PR を作る処理を足す(EDCB と同じ流れ)。
@@ -66,7 +66,7 @@
 
 ## 受け入れ条件
 
-- [ ] (作業 0)edcb のイメージが新しいベースイメージでビルドでき、スモークテストとフェーズ 2 の検証スクリプトが通る
+- [ ] (作業 0)edcb のイメージが新しいベースイメージでビルドでき、スモークテストと結合テスト(`tests/integration/run.sh`)が通る
 - [ ] (作業 0)mirakc のベースイメージが版とダイジェストで固定され、`upstream-check.yml` が更新を検出できる
 - [ ] (作業 0)CI の pytest が、イメージと同じ版の Python で通る。ワークフローが actionlint を通る
 - [ ] (作業 3)HLS 方式(`432p/h264/ffmpeg`)のリモート視聴が再生できる。または、直せない理由と回避策が実施記録にある

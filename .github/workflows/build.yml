@@ -14,14 +14,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # unit tests of the provisioning (edcb/tests); the runner's python3 is 3.12, as in the image
-  test:
+  # checks that need no Docker daemon (scripts/check.sh): unit tests of the
+  # provisioning, shellcheck, actionlint, compose config and the local-info check.
+  # pytest runs on Python 3.12, as in the image: with uv, check.sh asks for 3.12;
+  # without uv it uses "pipx run", i.e. the runner's python3, which is 3.12.
+  check:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
-      - name: pytest
-        run: pipx run pytest -v edcb/tests
+      - name: Install tools
+        run: scripts/install-tools.sh
+
+      - name: Check
+        run: scripts/check.sh
 
   edcb:
     name: edcb (${{ matrix.arch }})
@@ -52,6 +58,11 @@ jobs:
 
       - name: Smoke test
         run: .github/scripts/smoke-test.sh edcb:ci
+
+      # starts containers from the built image (provisioning, permissions,
+      # health check, HTTPS); root is needed to clean up files of other UIDs
+      - name: Integration test
+        run: sudo EDCBTEST_IMAGE=edcb:ci EDCBTEST_SKIP_BUILD=1 tests/integration/run.sh
 
   mirakc:
     runs-on: ubuntu-24.04

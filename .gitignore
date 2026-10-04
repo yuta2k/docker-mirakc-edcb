@@ -9,3 +9,8 @@ compose.override.yml
 compose.yml.v1-backup
 edcb.env
 mirakc/config.yml
+
+# lint tools installed by scripts/install-tools.sh
+.tools/
+# machine-specific patterns for scripts/check-local-info.sh
+.local-info-patterns

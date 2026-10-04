@@ -192,7 +192,7 @@ Docker デーモンが要る確認は、ユーザに sudo でスクリプトを�
 
 ### 次のフェーズへの申し送り
 
-- **CompatFlags**: xtne6f 版は `[SET] CompatFlags` を読み、既定値は 0。フェーズ 2 で `CompatFlags=4095` の既定値を書くまでは、tkntrec 版の EpgTimerNW との互換が失われる。v2 は全フェーズを入れてから出すので、利用者への影響は無い。ただし、この開発環境でフェーズ 1 のイメージを使うときは注意。
+- **CompatFlags**: xtne6f 版は `[SET] CompatFlags` を読み、既定値は 0。フェーズ 2 で `CompatFlags=4095` の既定値を書くまでは、tkntrec 版の EpgTimerNW との互換が失われる。v2 は全フェーズを入れてから出すので、利用者への影響は無い。ただし、フェーズ 1 だけを入れたイメージを実際に使うときは注意。
 - **E3**:
   - EMWUI の `Setting/`(`HttpPublic.ini`、`XCODE_OPTIONS.lua`)の置き場所は従来どおり。`api/util.lua` の `ALLOW_SETTING` / `ALLOW_SETTING_LIST` も E3 で変わっていない。
   - 既存のボリュームには旧 `HttpPublic/EMWUI/` が残る。フェーズ 2 で `HttpPublic` をイメージ側へ移すときの案内(6 章)に含めること。
@@ -200,5 +200,4 @@ Docker デーモンが要る確認は、ユーザに sudo でスクリプトを�
 - **U3**: EMWUI の Lua はボリュームの `HttpPublic/api/` 以下にある(`xcode`、`view`、`Settings` など)。書き込み先の調査対象に含めること。`api/Settings` は `Setting/HttpPublic.ini` に `WritePrivateProfile` で書く。
 - **スモークテスト**: フェーズ 2 で pytest を足すときは `build.yml` の edcb ジョブに追加する。`smoke-test.sh` は、ラベルが 1 つも無いと失敗する。
 - **定期チェックを有効にする前に**: 自動 PR で CI を動かすには、`UPSTREAM_CHECK_TOKEN`(contents / pull-requests の書き込み権限)を登録する必要がある(README の「ユーザの作業が必要なもの」)。定期実行は、このワークフローが既定ブランチ(`main`)に入るまで動かない。
-- **この開発環境**: `compose.override.yml` に旧来の `container_name`(`edcb-4ts`、`mirakc`)とボリューム名 `mirakc_epg` を残している。D5 の確認をこの環境でするなら、これらを消すこと。次に `up` すると、構成が変わったためコンテナが作り直される。
 
