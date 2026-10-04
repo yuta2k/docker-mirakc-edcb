@@ -2,6 +2,7 @@
 edcb/ini/*
 !edcb/ini/.gitkeep
 edcb/overrides/*
+!edcb/overrides/.gitkeep
 
 .env
 compose.override.yml

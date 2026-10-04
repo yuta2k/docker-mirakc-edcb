@@ -31,19 +31,26 @@ services:
     build:
       context: edcb
     restart: unless-stopped
+    # EDCB closes the recordings on SIGTERM. EpgTimerSrv waits up to 30 seconds
+    # for each tuner process before killing it, so allow more than Docker's 10 s.
+    stop_grace_period: 2m
     depends_on:
       mirakc:
         condition: service_started
         required: false
+    # 設定は edcb.env に書く(edcb.env-sample 参照)。無くてもよい
+    env_file:
+      - path: ./edcb.env
+        required: false
+    # ホスト側のポートは .env の EDCB_HOST_TCP_PORT / EDCB_HOST_HTTP_PORT で変えられる。
+    # HTTPS と EMWUI の SSE 専用ポートは既定では公開しない(compose.override-sample.yml 参照)
     ports:
-      - 4510:4510
-      - 5510:5510
+      - ${EDCB_HOST_TCP_PORT:-4510}:4510
+      - ${EDCB_HOST_HTTP_PORT:-5510}:5510
     volumes:
       - ./edcb/ini:/var/local/edcb
-    environment:
-      - TZ=Asia/Tokyo
-      - MIRAKC_ADDRESS=mirakc
-      - MIRAKC_PORT=40772
+      # 上書き用 ini(docs/v2/design.md の 4 章)
+      - ./edcb/overrides:/etc/edcb/overrides:ro
 
 volumes:
   mirakc-epg:

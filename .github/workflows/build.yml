@@ -14,6 +14,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # unit tests of the provisioning (edcb/tests); the runner's python3 is 3.12, as in the image
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: pytest
+        run: pipx run pytest -v edcb/tests
+
   edcb:
     name: edcb (${{ matrix.arch }})
     strategy:
