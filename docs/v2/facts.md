@@ -118,7 +118,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 
 | # | 内容 | 確認するフェーズ | 確認方法 |
 |---|---|---|---|
-| U1 | EDCB が arm64 でビルドできるか | 1 | **未確認のまま**。このホストには QEMU が無い。`build.yml` にネイティブ arm64 ランナー(`ubuntu-24.04-arm`)のジョブを入れたので、push して CI が動けば分かる。ソースを読んだ範囲では、Linux 向けのビルドに x86 に依存する箇所は見当たらない |
+| ~~U1~~ | ~~EDCB が arm64 でビルドできるか~~ | 1 | **確認済み**(フェーズ 1、PR #15 の CI)。GitHub のネイティブ arm64 ランナー(`ubuntu-24.04-arm`、aarch64)で、パッチ込みのビルドと `-h` の確認が通った。`release.yml` は amd64 / arm64 のままでよい |
 | ~~U2~~ | ~~EMWUI の固定コミットと EDCB `260904` の組み合わせで WebUI が動くか~~ | 1 | **確認済み**(フェーズ 1)。`/legacy/` と `/E3/` が 200。`/EMWUI/` は上流で削除された(F6) |
 | U3 | `HttpPublic` 配下に実行時に書き込む処理があるか | 2 | `HttpPublic` 以下の Lua で書き込み先を調べる(`legacy/view.lua` と `xcode.lua` がログを書いている。書き込み先のパスを確認) |
 | U4 | `HttpAccessControlList` の書式(IPv6、IPv4 射影アドレスの扱い) | 2 | `Document/Readme_Mod.txt` の該当節を読む |

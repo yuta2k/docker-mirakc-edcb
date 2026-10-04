@@ -167,12 +167,13 @@ Docker デーモンが要る確認は、ユーザに sudo でスクリプトを�
 | `COMPOSE_PROJECT_NAME` を変える | `config` で、ボリュームとネットワークが `proja_mirakc-epg` / `projb_mirakc-epg` のように変わる。`docker compose --dry-run create` で、コンテナ名が `edcbtest-a-edcb-1` / `edcbtest-b-edcb-1` になることを確認。ドライランでは何も作られていないことも確認した |
 | `docker build mirakc/` | 成功(`Fetched …libaribb25.git at dc1d96a…`) |
 | actionlint 1.7.12(shellcheck 0.11.0 と組み合わせて実行) | 3 ファイルともエラー 0。`fetch-source.sh` と `smoke-test.sh` も shellcheck を通る |
+| CI(PR #15、`build.yml`) | `edcb (amd64)`、`edcb (arm64)`、`mirakc` がすべて通った。arm64 のログに `Architecture: aarch64`、`Applied 2 patch(es)`、`Ver. work+s-260904` がある |
 | U8(フェーズ 2 の先取り) | `libssl.so.3`、`libcrypto.so.3` がある |
 
 ### 満たせなかった・読み替えた条件
 
 - **`/EMWUI/` → `/E3/`**: EMWUI は 2026-07-17 に旧 `EMWUI/` を削除し、E3(EMWUI 3)に移行していた(`facts.md` の F6)。固定したコミットにも `/EMWUI/` は無いので、`/E3/` で確認した。上流の構成の変化であり、今回の変更が原因ではない。
-- **U1(arm64)は未確認**: このホストには QEMU の binfmt が無い。ホスト全体に効く設定なので入れていない。CI のネイティブ arm64 ジョブで確認できるが、push が必要なので実行していない。そのため `release.yml` は amd64 / arm64 のままにしてある。CI で arm64 が失敗したら、`build.yml` と `release.yml` から arm64 を外す。
+- **U1(arm64)**: このホストには QEMU の binfmt が無い。ホスト全体に効く設定なので入れず、ローカルでは確認しなかった。PR #15 の CI(`build.yml`)で確認した。ネイティブ arm64 ランナー(aarch64)で、固定コミットの取得、パッチ 2 本の適用、ビルド、スモークテスト(`Ver. work+s-260904`、終了コード 2)が通った。`release.yml` は amd64 / arm64 のままにする。
 
 ### 設計から変えた点・実装時に決めた点
 
