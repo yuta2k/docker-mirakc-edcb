@@ -25,7 +25,8 @@ class Capture(provision.Reporter):
 
 def run(paths, env, **kw):
     r = Capture()
-    env = {"EDCB_PROVISION_FETCH_TIMEOUT": "10", **env}
+    # channel scans are tested in test_channels.py
+    env = {"EDCB_PROVISION_FETCH_TIMEOUT": "10", "EDCB_CHSCAN": "never", **env}
     assert provision.run(env, paths, reporter=r, **kw) == 0
     return r
 
@@ -508,17 +509,17 @@ def test_a_failed_update_is_retried_on_the_next_start(tree, fake, monkeypatch):
     a = fake("dual")
     b = fake("dual")
     run(tree, {"EDCB_BACKEND_DEFAULT_URL": a.url}, boot=True)
-    real = backends._write_lib_file
+    real = backends.write_lib_file
 
     def failing(path, data, mode):
         if path.endswith(".so.ini"):
             raise OSError(28, "No space left on device")
         real(path, data, mode)
 
-    monkeypatch.setattr(backends, "_write_lib_file", failing)
+    monkeypatch.setattr(backends, "write_lib_file", failing)
     r = run(tree, {"EDCB_BACKEND_DEFAULT_URL": b.url}, boot=True)
     assert any("cannot write" in w for w in r.warning_lines)
-    monkeypatch.setattr(backends, "_write_lib_file", real)
+    monkeypatch.setattr(backends, "write_lib_file", real)
     r = run(tree, {"EDCB_BACKEND_DEFAULT_URL": b.url}, boot=True)
     assert not any("not created by the provisioning" in w for w in r.warning_lines)
     conf = read_ini(os.path.join(tree.lib, "BonDriver_LinuxMirakc.so.ini"))

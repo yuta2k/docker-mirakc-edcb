@@ -452,7 +452,7 @@ def _load_manifest(lib_dir):
         return {}
 
 
-def _write_lib_file(path, data, mode):
+def write_lib_file(path, data, mode):
     tmp = os.path.join(os.path.dirname(path), f".{os.path.basename(path)}.provision-tmp")
     with open(tmp, "wb") as f:
         f.write(data)
@@ -501,7 +501,7 @@ def install_bondrivers(backends, lib_dir, template, *, dry_run=False, log, warn)
         changes += 1
         if not dry_run:
             try:
-                _write_lib_file(path, data, mode)
+                write_lib_file(path, data, mode)
             except OSError as e:
                 warn(f"cannot write {path}: {e}")
                 # still ours: keep the old record so that the next start retries
@@ -530,7 +530,7 @@ def install_bondrivers(backends, lib_dir, template, *, dry_run=False, log, warn)
 
     if not dry_run and new_manifest != manifest:
         try:
-            _write_lib_file(
+            write_lib_file(
                 os.path.join(lib_dir, MANIFEST),
                 (json.dumps({"files": new_manifest}, indent=2, sort_keys=True) + "\n").encode(),
                 0o644,
@@ -570,6 +570,25 @@ def report(env, root, *, out, fetch=None, total_timeout=10):
     except OSError as e:
         print(f"WARNING: cannot read {SRV_INI}: {e}", file=out)
         srv = ini.IniFile()
+
+    # channels imports this module
+    from . import channels
+    from .state import State
+
+    st = State(root).load()
+    ch = channels.Channels(root, st, None, None, dry_run=True, log=None, warn=None)
+
+    def channel_state(b, info):
+        """The scan of a backend and whether the backend still matches it (design.md 8.4)."""
+        record = ch.records.get(b.name)
+        if channels.user_files(root, st, b):
+            return "ChSet4 files placed by the user (not managed; edcbctl chscan --force hands them over)"
+        if not record:
+            return f"none (edcbctl chscan {b.name})"
+        reason = ch.drift(b, info)
+        if reason:
+            return f"{record.get('scanned_at')}; CHANGED: {reason} (edcbctl chscan {b.name})"
+        return f"{record.get('scanned_at')}; the channels are unchanged"
 
     rc = 0
     for b in found:
@@ -616,7 +635,6 @@ def report(env, root, *, out, fetch=None, total_timeout=10):
                 types[c["type"]] = types.get(c["type"], 0) + 1
             summary = ", ".join(f"{t} {n}" for t, n in types.items()) or "none"
             print(f"  channels: {len(info.channels)} ({summary})", file=out)
-        # the channel drift check needs a recorded scan (design.md 8.4, phase 4)
-        print("  channel changes since the last scan: not checked (no scan recorded)", file=out)
+        print(f"  channel scan: {channel_state(b, info)}", file=out)
     print("tuners: from the backend; Count: EpgTimerSrv.ini; ChSet4: without it, EDCB does not use the BonDriver", file=out)
     return rc

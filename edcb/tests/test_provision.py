@@ -21,7 +21,9 @@ def no_tuners(found, timeout):
 def run(paths, env=None, **kw):
     r = Capture()
     kw.setdefault("fetch", no_tuners)
-    rc = provision.run(env or {}, paths, reporter=r, **kw)
+    # channel scans are tested in test_channels.py
+    env = {"EDCB_CHSCAN": "never", **(env or {})}
+    rc = provision.run(env, paths, reporter=r, **kw)
     assert rc == 0
     return r
 

@@ -101,6 +101,8 @@ fi
 # === 2-3. initial files and provisioning ===
 # Also fetches the backends (at most about 30 s in total), installs one
 # BonDriver per backend and kind into /usr/local/lib/edcb and sets the tuner counts.
+# Without Setting/ChSet5.txt (EDCB_CHSCAN=first), it also scans the channels of
+# every backend first; EDCB waits up to 17 s per channel (BonCtrl.ini [CHSCAN]).
 edcbctl provision --boot || warn "provisioning failed; starting EpgTimerSrv with the current settings"
 
 # === 5. debug logs to standard output ===

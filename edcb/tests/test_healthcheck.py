@@ -59,3 +59,17 @@ def test_probe_refused():
     s.close()
     with pytest.raises(OSError):
         healthcheck._probe("127.0.0.1", port, False, timeout=1)
+
+
+def test_first_scan_counts_as_healthy(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(healthcheck, "_running", lambda: False)
+    monkeypatch.setattr(healthcheck, "_scanning", lambda: True)
+    assert healthcheck.main(str(tmp_path)) == 0
+    assert "scanning channels" in capsys.readouterr().out
+    monkeypatch.setattr(healthcheck, "_scanning", lambda: False)
+    assert healthcheck.main(str(tmp_path)) == 1
+
+
+def test_scanning_finds_no_scan_here():
+    # this test process is not EpgDataCap_Bon -chscan
+    assert healthcheck._scanning() is False
