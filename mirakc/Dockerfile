@@ -37,7 +37,6 @@ RUN BUILD_DEPENDENCIES="ca-certificates git build-essential cmake libpcsclite-de
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
-# Debian's pcscd is built with polkit, and without polkitd/D-Bus in the container
-# it refuses clients: arib-b25-stream-test fails with "B_CAS_CARD::init() : code=-3"
-# and mirakc answers 404 to decode=1 streams
-ENTRYPOINT ["sh", "-c", "pcscd --disable-polkit && /usr/local/bin/mirakc"]
+# starts the bundled pcscd unless the host's is mounted or DISABLE_PCSCD=1, then mirakc
+COPY --chmod=755 entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]

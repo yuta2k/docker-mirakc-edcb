@@ -11,13 +11,28 @@
 
 services:
   mirakc:
-    devices:
-      # チューナデバイスを指定する
-      # - /dev/dvb:/dev/dvb
-      # - /dev/pt3video0
-      # - /dev/pt3video1
-      # - /dev/pt3video2
-      # - /dev/pt3video3
+    # チューナデバイスを指定する
+    # devices:
+    #   - /dev/dvb:/dev/dvb
+    #   - /dev/pt3video0
+    #   - /dev/pt3video1
+    #   - /dev/pt3video2
+    #   - /dev/pt3video3
+    #   # カードリーダー(B-CAS)。コンテナ内の pcscd を使う場合(既定)は、USB デバイスを渡す。
+    #   # ホストの pcscd を使う場合は不要
+    #   - /dev/bus/usb:/dev/bus/usb
+    # ホストの pcscd を使う場合は、ソケットをマウントする(コンテナ内の pcscd は起動しなくなる)。
+    # ホストとコンテナの pcsc-lite の版が離れていると通信できないことがある(起動時のログに版が出る)
+    # (ホストに pcscd が無いときに、Docker が同名のディレクトリを作らずエラーにする書き方)
+    # volumes:
+    #   - type: bind
+    #     source: /run/pcscd/pcscd.comm
+    #     target: /run/pcscd/pcscd.comm
+    #     bind:
+    #       create_host_path: false
+    # カードリーダーを使わない場合など、コンテナ内の pcscd を起動しないようにするには
+    # environment:
+    #   - DISABLE_PCSCD=1
     # mirakc のポートをホストに公開する場合
     # ports:
     #   - 40772:40772

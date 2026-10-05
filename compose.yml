@@ -12,8 +12,7 @@ services:
       context: mirakc
     init: true
     restart: unless-stopped
-    devices:
-      - /dev/bus:/dev/bus
+    # チューナーとカードリーダーの devices は compose.override.yml に書く
     volumes:
       - mirakc-epg:/var/lib/mirakc/epg
       # ファイルが無いときに、Docker が同名のディレクトリを作らずエラーにする
