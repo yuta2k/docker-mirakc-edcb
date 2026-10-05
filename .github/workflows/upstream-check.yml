@@ -6,6 +6,9 @@ name: upstream-check
 # - mirakc: a newer mirakc/mirakc release (<version>-debian on Docker Hub). Updates
 #   MIRAKC_VERSION / MIRAKC_DIGEST in mirakc/Dockerfile and builds the image.
 # On success each opens a PR, on failure an issue.
+# - hwaccel-intel: builds the sample edcb/hwaccel/intel/Dockerfile on the edcb image
+#   of this commit, without QSVEncC and with its latest release. Nothing is published;
+#   a failure only fails the job.
 #
 # PRs created with the default GITHUB_TOKEN do not trigger other workflows, so the build is
 # done here before the PR is created. To have the build workflow run on the PR as well,
@@ -269,3 +272,33 @@ jobs:
           else
             gh issue create --title "$title" --body "$body"
           fi
+
+  hwaccel-intel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the edcb image
+        run: docker buildx build --load -t edcb:hwaccel-base edcb
+
+      - id: qsvencc
+        name: Find the latest QSVEncC
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(gh api repos/rigaya/QSVEnc/releases/latest --jq .tag_name)
+          if [ -z "$version" ]; then
+            echo "::error::could not determine the latest QSVEncC release"
+            exit 1
+          fi
+          echo "latest QSVEncC: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test the sample
+        env:
+          QSVENCC_VERSION: ${{ steps.qsvencc.outputs.version }}
+        run: |
+          .github/scripts/hwaccel-intel-test.sh edcb:hwaccel-base ""
+          .github/scripts/hwaccel-intel-test.sh edcb:hwaccel-base "$QSVENCC_VERSION"

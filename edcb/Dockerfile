@@ -142,29 +142,12 @@ RUN apt-get update && \
     procps \
     tzdata && \
 \
-  # install EDCB
+  # install EDCB. Hardware encoding drivers are not included: see hwaccel/intel/Dockerfile
   ( \
     cd /usr/local/src/EDCB/Document/Unix && \
     make install && \
     make install_extra \
   ) && \
-\
-#   # install Intel Media Driver
-#   # https://dgpu-docs.intel.com/driver/client/overview.html#installing-client-gpus-on-ubuntu-desktop-24-04-lts
-#   INTEL_MEDIA_DRIVER_DEPENDENCIES="gnupg ca-certificates wget" && \
-#   apt-get install -y --no-install-recommends $INTEL_MEDIA_DRIVER_DEPENDENCIES && \
-#   wget -qO - https://repositories.intel.com/gpu/intel-graphics.key | \
-#     gpg --yes --dearmor --output /usr/share/keyrings/intel-graphics.gpg && \
-#   echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu noble unified" | \
-#     tee /etc/apt/sources.list.d/intel-gpu-noble.list && \
-#   apt-get update && \
-#   apt-get install -y --no-install-recommends libva-dev libmfx-dev intel-media-va-driver-non-free && \
-#   # install QSVEncC
-#   wget https://github.com/rigaya/QSVEnc/releases/download/7.82/qsvencc_7.82_Ubuntu24.04_amd64.deb && \
-#   apt-get install -y ./qsvencc_7.82_Ubuntu24.04_amd64.deb && \
-#   rm qsvencc_7.82_Ubuntu24.04_amd64.deb && \
-#   apt-get remove -y $INTEL_MEDIA_DRIVER_DEPENDENCIES && \
-# \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
