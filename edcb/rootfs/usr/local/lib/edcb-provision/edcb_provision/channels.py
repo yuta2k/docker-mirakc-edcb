@@ -403,6 +403,7 @@ def boot(env, paths, found, infos, state, backup, owner, *, dry_run, log, warn):
     first = not os.path.exists(os.path.join(paths.root, CHSET5_REL))
 
     to_scan = []
+    unreachable = []
     for b in found:
         info = infos[b.name]
         users = user_files(paths.root, state, b)
@@ -411,7 +412,7 @@ def boot(env, paths, found, infos, state, backup, owner, *, dry_run, log, warn):
             if info.source == "live":
                 to_scan.append(b)
             else:
-                warn(f"backend {b.name} is unreachable and is not scanned; it is tried again on the next start")
+                unreachable.append(b.name)
             continue
         reason = ch.drift(b, info)
         if reason:
@@ -435,7 +436,17 @@ def boot(env, paths, found, infos, state, backup, owner, *, dry_run, log, warn):
                 else:
                     log(f"first start ({CHSET5_REL} does not exist): scanning the channels of backend {names}")
                     scanner = Scanner(paths.root, paths.lib, owner, scan_command(env), log=log, warn=warn)
-                    changes += len(ch.scan(scanner, to_scan, infos))
+                    done = ch.scan(scanner, to_scan, infos)
+                    changes += len(done)
+                    unreachable += [b.name for b in to_scan if b.name not in done]
+
+    # a scan that creates ChSet5 ends the first start: the others are not tried again
+    if unreachable and not dry_run:
+        if os.path.exists(os.path.join(paths.root, CHSET5_REL)):
+            for name in unreachable:
+                warn(f"backend {name} is not scanned and EDCB does not use it; scan it with: edcbctl chscan {name}")
+        else:
+            warn(f"backend {', '.join(unreachable)} is not scanned; the scan is tried again on the next start")
 
     for b in found:
         counts, _ = backends.tuner_counts(b, infos[b.name])

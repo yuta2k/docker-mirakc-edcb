@@ -259,7 +259,15 @@ def test_unreachable_backend_is_not_scanned(tree, fake, scan_env):
     env = {**scan_env, "EDCB_BACKEND_DEFAULT_URL": fake("dual").url, "EDCB_BACKEND_GONE_URL": "http://127.0.0.1:9"}
     r = boot(tree, env)
     assert scans(env) == ["BonDriver_LinuxMirakc-scan-DEFAULT.so"]
-    assert any("backend GONE is unreachable and is not scanned" in w for w in r.warning_lines)
+    # DEFAULT made ChSet5: GONE is not tried again on the next start
+    assert any("backend GONE is not scanned" in w and "edcbctl chscan GONE" in w for w in r.warning_lines)
+
+
+def test_no_backend_scanned_is_tried_again(tree, fake, scan_env):
+    env = {**scan_env, "EDCB_BACKEND_DEFAULT_URL": "http://127.0.0.1:9"}
+    r = boot(tree, env)
+    assert any("backend DEFAULT is not scanned; the scan is tried again on the next start" in w for w in r.warning_lines)
+    assert not exists(tree, CHSET5)
 
 
 def test_diff_does_not_scan(tree, fake, scan_env):
