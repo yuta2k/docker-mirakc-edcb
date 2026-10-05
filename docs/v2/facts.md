@@ -145,6 +145,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 
 - EDCB の `XCODE_OPTIONS.lua` の既定の項目が使うのは、ffmpeg(`libx264`、`h264_nvenc`、`h264_qsv`、`h264_amf`)、NVEncC、QSVEncC、VCEEncC。
 - Ubuntu 24.04 の ffmpeg(6.1.1-3ubuntu5)は `--enable-libvpl` でビルドされている(Intel の cartwheel-ffmpeg の Issue 322 の記載による。コンテナ内では未確認)。
+- Ubuntu 26.04 の ffmpeg は 8.0.1-3ubuntu2。`libavcodec62` が `libvpl2` と `libva2` に依存しているので、VPL と VA-API が有効(パッケージ情報で確認)。Intel のパッケージは標準リポジトリにある: `intel-media-va-driver-non-free`(multiverse)、`libmfx-gen1.2`(VPL の GPU ランタイム)、`vainfo`。`libmfx1`(Media SDK)は無いので、Gen11 以前の GPU では QSV が使えず、VA-API だけになる(QSVEnc の `Install.en.md`)。
+- QSVEncC の Linux 版は、Ubuntu の版によらず共通の `qsvencc_<版>_amd64.deb`(2026-10-06 時点の最新は 8.32)。Ubuntu 26.04 では Intel の外部リポジトリは要らない。
 - 現在の Dockerfile のコメントアウト部分は QSVEncC 7.82 を固定しているが、2026-10-03 時点の最新は 8.32 で、配布ファイル名の形も変わっている(`qsvencc_8.32_amd64.deb`)。そのままでは動かない。
 - QSVEncC の導入手順(`Install.en.md`)によると、QSV には VPL ランタイム(Tiger Lake 以降は `libmfx-gen`、それ以前は `libmfx1`)が要る。VA-API だけで動かすモードもある。
 
@@ -154,6 +156,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - 2.4.1 から、サーバもクライアントも 4:4 までの後方互換を持つ。それより前は、版が一致しないと通信を打ち切る。
 - Mirakurun 公式のコンテナは、環境変数 `DISABLE_PCSCD=1` で内蔵の pcscd を止められる。
 - mirakc の Dockerfile は既定で Debian sid ベース(`ARG DEBIAN_CODENAME=sid`)。配布イメージの実際の版は未確認。
+- mirakc の配布イメージには、版付きのタグ(`3.4.88-debian` など。毎週更新)と、動くタグ(`debian`、`main-debian` など)がある。フェーズ 5 で版とダイジェストで固定した。ただし、このリポジトリの `mirakc/Dockerfile` がビルド時に入れる pcscd などは、その時点の sid のパッケージになる(固定されない)。
+- pcscd は、ソケットと PID のファイル(`/run/pcscd/pcscd.comm`、`pcscd.pid`)が残っていると、PID のプロセスが生きているかで「動いている」と判断する(`pcscdaemon.c`)。`docker restart` ではコンテナのファイルシステムが残るので、mirakc の entrypoint は、マウントされていない残りのファイルを消してから起動する。ホストのソケットかどうかは `/proc/self/mountinfo` で判断する。
 
 ### F8. ライセンス
 
@@ -186,4 +190,4 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 | ~~U11~~ | ~~コマンドラインから `ReloadSetting` を呼ぶ手段~~ | 4 | **確認済み: 手段はあるが、チャンネル定義の反映には足りない**(F17)。制御コマンド `CMD2_EPG_SRV_RELOAD_SETTING`(3)と Lua の `edcb.ReloadSetting` があり、どちらも `CEpgTimerSrvMain::ReloadSetting(false)` を呼ぶ。これは `ChSet5.txt` を読み直すが、BonDriver の一覧と各 BonDriver の ChSet4 は起動時の `CReserveManager::Initialize` でしか読まない。`edcbctl chscan` のあとは再起動が要る |
 | ~~U12~~ | ~~スキャンにかかる時間~~ | 4 | **確認済み**(フェーズ 4 の実機確認、2026-10-05)。mirakc の 49 チャンネル(GR 11、BS 26、CS 12)で 388 秒、167 サービス。1 チャンネルあたり約 8 秒。上限は EDCB の待ち時間(1 チャンネルあたり `ChChgTimeOut` + `ServiceChkTimeOut` = 既定 17 秒、F4) |
 | ~~U13~~ | ~~録画中か・直近の予約を取得する手段~~ | 4 | **確認済み**(F17)。EpgTimerSrv の制御用 UNIX ソケット `/var/local/edcb/EpgTimerSrvPipe` に、`CMD2_EPG_SRV_ENUM_TUNER_PROCESS`(1066。録画中かは `recFlag`)と `CMD2_EPG_SRV_ENUM_RESERVE`(1011。予約一覧)を送る。HTTP や ACL の設定に左右されない |
-| U14 | pcscd が polkit 有効でビルドされている場合の、root / 非 root クライアントの扱い | 5 | **一部確認**(フェーズ 2 の実機確認、2026-10-05)。mirakc イメージの pcscd(Debian sid の 2.3.3-1、`polkitd` に依存)は、polkit と D-Bus の無いコンテナでは root のクライアント(`arib-b25-stream-test`)も拒み、`B_CAS_CARD::init() : code=-3` で復号できない。mirakc は `decode=1` のストリームに 404 を返し、BonDriver(`DECODE_B25=1`)は受信できない。`pcscd --disable-polkit` で復号できた。同じ版の pcscd を持つ 10/4 22:00 のイメージで視聴できていた理由は未確認。非 root のクライアントの扱いと `auth.c` はフェーズ 5 で読む |
+| U14 | pcscd が polkit 有効でビルドされている場合の、root / 非 root クライアントの扱い | 5 | **確認済み(10/4 22:00 のイメージで視聴できた理由だけ未確認)**。フェーズ 2 の実機確認(2026-10-05)で、mirakc イメージの pcscd(Debian sid の 2.3.3-1、`polkitd` に依存)は、polkit と D-Bus の無いコンテナでは root のクライアント(`arib-b25-stream-test`)も拒み、`B_CAS_CARD::init() : code=-3` で復号できなかった。`pcscd --disable-polkit` で復号できた。フェーズ 5 で pcsc-lite のソース(2.5.2)を読んだ: `src/auth.c` の `IsClientAuthorized` は、`--disable-polkit` が無ければ、root かどうかにかかわらず接続元の UID / PID で polkit に問い合わせ、polkit に届かなければ拒む(root を素通しにする処理は無い)。`--disable-polkit` は `pcscdaemon.c` で常に受け付けるオプション。mirakc の entrypoint は内蔵の pcscd を `--disable-polkit` で起動する |

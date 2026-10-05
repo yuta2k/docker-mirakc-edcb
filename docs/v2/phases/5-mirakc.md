@@ -119,4 +119,41 @@
 
 ## 実施記録
 
-(着手したエージェントが書く)
+### 進め方(2026-10-06)
+
+- フェーズ 4 の申し送り(外した接続先の片付け)をユーザと相談し、「案どおりこのフェーズに含める」と決めた(作業 4)。
+- エージェントは Docker デーモンを使えないので、Docker が要る確認は `tests/integration/phase5.sh`(T50〜T58)にまとめ、ユーザに `sudo tests/integration/run.sh` の実行を依頼する。作業 3 は、ユーザに TS の取得だけを依頼し、切り分けはチューナー無しで行う。
+
+### 作業 0: ベースイメージと依存の更新
+
+- edcb: `ubuntu:24.04` → `ubuntu:26.04`。26.04 は Docker Hub に公開済み(amd64 / arm64)で、必要なパッケージはすべて標準リポジトリにある(ffmpeg 8.0.1、Python 3.14、lua5.2 5.2.4、lua-zlib 1.4、`procps`、`tzdata`)。ほかのベースを比べる理由は無かった。
+- pytest の Python: `scripts/check.sh` の `PYTHON_VERSION` を 3.14 にした。CI の `check` ジョブで `pipx install uv` を行い、uv に 3.14 を用意させる(ランナーの python3 は 3.12)。uv が無いときは python3 の版を比べ、違えば CI では FAIL、手元では警告にした。
+- mirakc: `FROM mirakc/mirakc:${MIRAKC_VERSION}-debian@${MIRAKC_DIGEST}`(3.4.88、マルチプラットフォームのイメージのインデックスのダイジェスト)。ダイジェストと名前空間の接頭辞は両立しないので、`ARG ARCH` をやめた(別のアーキテクチャは `platform` でビルドできる)。
+- `upstream-check.yml`: 既存のジョブを `edcb` に改名し、`mirakc` ジョブを足した。Docker Hub のタグ一覧から `<版>-debian` の最新を探し、レジストリの API でダイジェストを取得、`mirakc/Dockerfile` を書き換えてビルドと `mirakc --version` を行い、成功なら PR、失敗なら issue を作る(EDCB と同じ流れ)。検出の部分は手元で実行し、現在の版では `newer=false`、版を 1 つ戻すと `newer=true` になることを確かめた。
+- GitHub Actions のアクションは、すでにすべて最新のメジャー版だった(`actions/checkout@v7`、`docker/setup-buildx-action@v4`、`docker/build-push-action@v7`、`docker/login-action@v4`、`docker/metadata-action@v6`、`actions/upload-artifact@v7`、`actions/download-artifact@v8`。2026-10-06 に各リポジトリの最新リリースで確認)。
+
+### 作業 1: mirakc コンテナ
+
+- `mirakc/entrypoint.sh`: `DISABLE_PCSCD=1` なら起動しない。`/run/pcscd/pcscd.comm` か `/run/pcscd` がマウントされていて(`/proc/self/mountinfo`)、ソケットがあれば、ホストの pcscd を使う。マウントされているのにソケットが無いときは、内蔵の pcscd も起動せずに警告する(ホストのディレクトリに内蔵の pcscd のソケットを作らないため)。それ以外は、残っているソケットと PID のファイルを消してから `pcscd --disable-polkit` を起動する。どの場合もログに出し、pcsc-lite の版も出す(ホストとの版の違いを調べるため)。最後に `exec mirakc`。
+- **設計から足した点**: 単純な `-S` の判定では、`docker restart` のあとに内蔵の pcscd が残したソケットを「ホストのもの」と誤判定する。マウントの有無で判定するようにした(T55 で確認する)。
+- `compose.yml` の mirakc から `devices: /dev/bus:/dev/bus` を外した(ホスト固有の値、design.md 2 章)。`compose.override-sample.yml` に、内蔵の pcscd 用の `/dev/bus/usb`、ホストの pcscd 用のソケットのマウント(`create_host_path: false` の長い書式。ホストにソケットが無いときに Docker がディレクトリを作らないように)、`DISABLE_PCSCD=1` を載せた。`/dev/bus/usb` で足りるかは実機確認で確かめる。
+
+### 作業 2: ハードウェアエンコードの見本
+
+- `edcb/hwaccel/intel/Dockerfile`: `ARG BASE_IMAGE`(既定は `ghcr.io/yuta2k/docker-mirakc-edcb/edcb:latest`。release.yml のイメージ名)。Ubuntu の標準リポジトリから `intel-media-va-driver-non-free`、`libmfx-gen1.2`、`vainfo` を入れる。`QSVENCC_VERSION` を指定したときだけ `qsvencc_<版>_amd64.deb` を取得して apt で入れる(`QSVENCC_SHA256` を指定すれば検査する)。amd64 以外ではビルドを失敗させる。
+- 26.04 の ffmpeg は最初から VPL と VA-API が有効なので、`h264_qsv` と `h264_vaapi` は配布イメージの ffmpeg にも出る。見本が足すのはドライバとランタイム。
+- `edcb/Dockerfile` のコメントアウト部分を削除した。
+- `upstream-check.yml` に `hwaccel-intel` ジョブを足した。edcb をビルドし、それを `BASE_IMAGE` にして、QSVEncC 無しと最新版の 2 通りで見本をビルドし、`.github/scripts/hwaccel-intel-test.sh` で確かめる(公開しない)。
+- **Setup.md の材料**(フェーズ 6): 見本と `/dev/dri` で使えるようになる `XCODE_OPTIONS.lua` の項目は、`720p/h264/ffmpeg-qsv`(QSV。Gen12 = Tiger Lake 以降)。`QSVENCC_VERSION` を指定すると `720p/h264/QSVEncC` と `720p/hevc/QSVEncC` も使える(Gen11 以前は `--backend vaapi` が要る。既定の項目にはその指定が無い)。`h264_vaapi` を使う項目は既定には無い(利用者が `Setting/XCODE_OPTIONS.lua` に足す)。
+
+### 作業 4: `edcbctl prune`
+
+- `edcb_provision/prune.py`。対象の BonDriver は、`EpgTimerSrv.ini` のセクション、`[TVTEST]` の行、`Setting/` の ChSet4 のファイル名、状態ファイルの記録、`.provision/` のファイルから集める。名前の解釈は `BonDriver_LinuxMirakc[_<名前>][_T|_S].so`(大文字小文字を区別しない)。
+- 予約のチューナー固定を数えるため、`ctrlcmd.py` の予約の読み取りを `REC_SETTING_DATA` の `tunerID` まで広げた(`Common/CtrlCmdUtil.cpp`)。EDCB のチューナー ID は `Priority << 16 | 連番`(`ReserveManager.cpp` の `Initialize`)。
+- **設計から変えた点**: 本数が 0 になった種別の、利用者が置いた・編集した ChSet4 については、起動時も prune でも警告しない。その BonDriver は `Count=0` か、セクションが無いので EDCB は使わず、害が無いため(既存のテスト `test_edited_generated_file_is_left_alone` の前提とも合う)。外した接続先の利用者の ChSet4 は、`.so` が無いので警告する。
+- ini の編集に、セクションを丸ごと消す `IniFile.delete_section` を足した。
+
+### 検証(エージェントが実行したもの)
+
+- `scripts/check.sh`: pytest(Python 3.14、178 件成功、1 件 SKIP)、shellcheck、actionlint、compose、local-info がすべて PASS。
+- `docker compose config`(デーモン不要): mirakc を無効にした override で、`--services` が `edcb` だけになることを確かめた。ソケットのマウントの長い書式も通った。
