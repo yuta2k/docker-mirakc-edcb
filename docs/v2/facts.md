@@ -98,6 +98,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - Linux では、`/var/local/edcb/EpgTimerSrvPipe` の UNIX ソケットで受ける(`Common/SendCtrlCmd.cpp`、`PipeServer.cpp`)。要求は「コマンド番号、データの長さ(どちらも 32 ビット、リトルエンディアン)、データ」、応答は「結果(1 が成功)、長さ、データ」。認証は無い(ソケットのファイルの権限だけ)。
 - 値の形(`Common/CtrlCmdUtil.cpp`): 整数はリトルエンディアン。文字列は「長さ(長さの欄を含むバイト数)+ UTF-16LE + NUL」。構造体は先頭に自分の長さ、配列は「長さ、要素数」を持つので、読まない欄は長さで読み飛ばせる。`SYSTEMTIME` は 16 ビット × 8(年、月、曜日、日、時、分、秒、ミリ秒。EpgTimerSrv の地方時)。
 - EDCB は `[BonDriver_*.so]` の `Priority` が小さい BonDriver から予約に割り当てる。プロビジョニングが Priority を振る順は、フェーズ 4 で地上波専用・衛星専用を先、両対応を後にした(`design.md` の 7.3)。
+- 「視聴に使用するBonDriver」は `EpgTimerSrv.ini [TVTEST]` の `Num` と `0`〜(`EpgTimerSrvSetting.cpp` の `viewBonList`)。NetworkTV(EMWUI の視聴)は、ChSet4 でそのサービスを受けられるチューナーのうち、この一覧にある BonDriver のものだけを、チューナー ID の大きい順(Priority の大きい側)に使う(`EpgTimerSrvMain.cpp` の `OpenNetworkTV`)。
 - `CMD2_EPG_SRV_ENUM_TUNER_PROCESS` は、待機中でないチューナーだけを返す。`tunerID` は `Priority << 16 | 連番`。`REC_SETTING_DATA.recMode` は 5 以上(`recMode / 5 % 2 != 0`)が無効の予約。
 - `ReloadSetting` は ChSet5 と ini を読み直すが、チューナーの一覧と ChSet4 は読み直さない(U11)。
 
