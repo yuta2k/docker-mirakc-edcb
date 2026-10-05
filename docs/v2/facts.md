@@ -155,8 +155,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - 内部プロトコルの版: 2.0 系まで 4:4、2.3〜2.4.0 が 4:5、2.5 系が 4:6(`src/winscard_msg.h`)。
 - 2.4.1 から、サーバもクライアントも 4:4 までの後方互換を持つ。それより前は、版が一致しないと通信を打ち切る。
 - Mirakurun 公式のコンテナは、環境変数 `DISABLE_PCSCD=1` で内蔵の pcscd を止められる。
-- mirakc の Dockerfile は既定で Debian sid ベース(`ARG DEBIAN_CODENAME=sid`)。配布イメージの実際の版は未確認。
-- mirakc の配布イメージには、版付きのタグ(`3.4.88-debian` など。毎週更新)と、動くタグ(`debian`、`main-debian` など)がある。フェーズ 5 で版とダイジェストで固定した。ただし、このリポジトリの `mirakc/Dockerfile` がビルド時に入れる pcscd などは、その時点の sid のパッケージになる(固定されない)。
+- mirakc の Dockerfile は既定で Debian sid ベース(`ARG DEBIAN_CODENAME=sid`)。ただし、配布イメージ `3.4.88-debian` は trixie だった(下記)。
+- mirakc の配布イメージには、版付きのタグ(`3.4.88-debian` など。毎週更新)と、動くタグ(`debian`、`main-debian` など)がある。フェーズ 5 で版とダイジェストで固定した。固定した `3.4.88-debian` のベースは **Debian 13(trixie)**で、ビルド時に入る pcsc-lite は 2.3.3(フェーズ 5 の結合テストのログで確認)。`mirakc/Dockerfile` がビルド時に入れる pcscd などは、その時点の trixie のパッケージになる(イメージの固定では固定されない)。
 - pcscd は、ソケットと PID のファイル(`/run/pcscd/pcscd.comm`、`pcscd.pid`)が残っていると、PID のプロセスが生きているかで「動いている」と判断する(`pcscdaemon.c`)。`docker restart` ではコンテナのファイルシステムが残るので、mirakc の entrypoint は、マウントされていない残りのファイルを消してから起動する。ホストのソケットかどうかは `/proc/self/mountinfo` で判断する。
 
 ### F8. ライセンス
