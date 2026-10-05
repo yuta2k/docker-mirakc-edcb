@@ -29,6 +29,8 @@ DEFAULT_PRIORITY = 10
 DEFAULT_DECODE = 1
 # M: terrestrial and satellite, T: terrestrial only, S: satellite only
 KINDS = ("M", "T", "S")
+# EpgTimerSrv.ini: the BonDrivers used for viewing (EpgTimerSrvSetting.cpp viewBonList)
+VIEW_SECTION = "TVTEST"
 BONDRIVER_BASE = "BonDriver_LinuxMirakc"
 
 # upper-case letters and digits, starting with a letter; T and S would make
@@ -386,6 +388,15 @@ def tuner_entries(root, backends, infos, *, warn):
     A section that does not exist gets Count, GetEpg, EPGCount and Priority.
     An existing one is left alone; with TUNERS=auto, a different Count is
     only reported. With an explicit TUNERS, Count is written on every start.
+
+    Also the list of BonDrivers used for viewing ([TVTEST], "視聴に使用する
+    BonDriver"), only when it does not exist: every BonDriver with tuners.
+    A list that exists belongs to the user and is never extended.
+
+    New sections are numbered after the existing ones, the terrestrial-only
+    and satellite-only BonDrivers before the dual ones: EDCB uses the
+    smallest Priority first, and a dual tuner taken by a recording that a
+    single-band one could have done is missing for the other band later.
     """
     path = os.path.join(root, SRV_INI)
     try:
@@ -403,6 +414,8 @@ def tuner_entries(root, backends, infos, *, warn):
     next_priority = max(priorities) + 1 if priorities else 0
 
     entries = []
+    new_sections = []  # (order, section, source) of the sections to number
+    with_tuners = []  # BonDrivers with at least one tuner
     for b in backends:
         counts, explicit = tuner_counts(b, infos[b.name])
         if counts is None:
@@ -414,6 +427,8 @@ def tuner_entries(root, backends, infos, *, warn):
         for kind in KINDS:
             section = b.bondriver(kind)
             n = counts[kind]
+            if n > 0:
+                with_tuners.append(section)
             exists = srv.has_section(section)
             if explicit:
                 if exists or n > 0:
@@ -432,9 +447,29 @@ def tuner_entries(root, backends, infos, *, warn):
                     entries.append(Entry(SRV_INI, section, "Count", str(n), False, source))
                 entries.append(Entry(SRV_INI, section, "GetEpg", "1", False, source))
                 entries.append(Entry(SRV_INI, section, "EPGCount", "0", False, source))
-                entries.append(Entry(SRV_INI, section, "Priority", str(next_priority), False, source))
-                next_priority += 1
+                new_sections.append((kind == "M", len(new_sections), section, source))
+    for i, (_, _, section, source) in enumerate(sorted(new_sections)):
+        entries.append(Entry(SRV_INI, section, "Priority", str(next_priority + i), False, source))
+    # EDCB's NetworkTV mode (live viewing in EMWUI) uses only these BonDrivers
+    if with_tuners:
+        source = "default (BonDrivers used for viewing)"
+        entries.append(Entry(SRV_INI, VIEW_SECTION, "Num", str(len(with_tuners)), False, source))
+        for i, name in enumerate(with_tuners):
+            entries.append(Entry(SRV_INI, VIEW_SECTION, str(i), name, False, source, anchor="Num"))
     return entries
+
+
+def view_bondrivers(srv):
+    """The BonDrivers in the viewing list of EpgTimerSrv.ini, or None if there is no list."""
+    num = srv.get(VIEW_SECTION, "Num")
+    if num is None:
+        return None
+    try:
+        n = int(num.strip())
+    except ValueError:
+        return []
+    names = [srv.get(VIEW_SECTION, str(i)) for i in range(n)]
+    return [x.strip() for x in names if x]
 
 
 # ----- BonDriver files (design.md 7.1) -----
@@ -452,7 +487,7 @@ def _load_manifest(lib_dir):
         return {}
 
 
-def _write_lib_file(path, data, mode):
+def write_lib_file(path, data, mode):
     tmp = os.path.join(os.path.dirname(path), f".{os.path.basename(path)}.provision-tmp")
     with open(tmp, "wb") as f:
         f.write(data)
@@ -501,7 +536,7 @@ def install_bondrivers(backends, lib_dir, template, *, dry_run=False, log, warn)
         changes += 1
         if not dry_run:
             try:
-                _write_lib_file(path, data, mode)
+                write_lib_file(path, data, mode)
             except OSError as e:
                 warn(f"cannot write {path}: {e}")
                 # still ours: keep the old record so that the next start retries
@@ -530,7 +565,7 @@ def install_bondrivers(backends, lib_dir, template, *, dry_run=False, log, warn)
 
     if not dry_run and new_manifest != manifest:
         try:
-            _write_lib_file(
+            write_lib_file(
                 os.path.join(lib_dir, MANIFEST),
                 (json.dumps({"files": new_manifest}, indent=2, sort_keys=True) + "\n").encode(),
                 0o644,
@@ -571,6 +606,27 @@ def report(env, root, *, out, fetch=None, total_timeout=10):
         print(f"WARNING: cannot read {SRV_INI}: {e}", file=out)
         srv = ini.IniFile()
 
+    # channels imports this module
+    from . import channels
+    from .state import State
+
+    st = State(root).load()
+    viewing = view_bondrivers(srv)
+    viewing = None if viewing is None else {x.lower() for x in viewing}
+    ch = channels.Channels(root, st, None, None, dry_run=True, log=None, warn=None)
+
+    def channel_state(b, info):
+        """The scan of a backend and whether the backend still matches it (design.md 8.4)."""
+        record = ch.records.get(b.name)
+        if channels.user_files(root, st, b):
+            return "ChSet4 files placed by the user (not managed; edcbctl chscan --force hands them over)"
+        if not record:
+            return f"none (edcbctl chscan {b.name})"
+        reason = ch.drift(b, info)
+        if reason:
+            return f"{record.get('scanned_at')}; CHANGED: {reason} (edcbctl chscan {b.name})"
+        return f"{record.get('scanned_at')}; the channels are unchanged"
+
     rc = 0
     for b in found:
         info = live[b.name]
@@ -587,7 +643,7 @@ def report(env, root, *, out, fetch=None, total_timeout=10):
         print(f"{b.name}: {b.url} ({state})", file=out)
         counts, explicit = tuner_counts(b, info)
         actual, _ = classify(info.tuners) if info.source != "none" else (None, None)
-        rows = [("kind", "BonDriver", "tuners", "Count", "ChSet4")]
+        rows = [("kind", "BonDriver", "tuners", "Count", "ChSet4", "view")]
         for kind in KINDS:
             name = b.bondriver(kind)
             count = srv.get(name, "Count")
@@ -601,6 +657,7 @@ def report(env, root, *, out, fetch=None, total_timeout=10):
                     "?" if actual is None else str(actual[kind]),
                     ("-" if count is None else count.strip()) + mark,
                     "yes" if os.path.isfile(os.path.join(root, chset4_rel(name))) else "no",
+                    "-" if viewing is None else "yes" if name.lower() in viewing else "no",
                 )
             )
         widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
@@ -616,7 +673,7 @@ def report(env, root, *, out, fetch=None, total_timeout=10):
                 types[c["type"]] = types.get(c["type"], 0) + 1
             summary = ", ".join(f"{t} {n}" for t, n in types.items()) or "none"
             print(f"  channels: {len(info.channels)} ({summary})", file=out)
-        # the channel drift check needs a recorded scan (design.md 8.4, phase 4)
-        print("  channel changes since the last scan: not checked (no scan recorded)", file=out)
+        print(f"  channel scan: {channel_state(b, info)}", file=out)
     print("tuners: from the backend; Count: EpgTimerSrv.ini; ChSet4: without it, EDCB does not use the BonDriver", file=out)
+    print("view: in the BonDrivers used for viewing (WebUI: 視聴に使用するBonDriver; - = no list)", file=out)
     return rc

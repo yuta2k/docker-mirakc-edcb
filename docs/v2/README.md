@@ -27,8 +27,8 @@
 |---|---|---|---|
 | 1 | `phases/1-build.md` | 上流の固定、パッチの当て方、CI、compose の git 管理 | 完了 |
 | 2 | `phases/2-provision.md` | プロビジョニングの基盤、実行ユーザ、ヘルスチェック | 完了 |
-| 3 | `phases/3-backends.md` | BonDriver の修正、複数バックエンド、チューナー数の自動設定 | レビュー待ち |
-| 4 | `phases/4-channels.md` | チャンネルスキャンの自動化、S/T 分割、`edcbctl` | 未着手 |
+| 3 | `phases/3-backends.md` | BonDriver の修正、複数バックエンド、チューナー数の自動設定 | 完了 |
+| 4 | `phases/4-channels.md` | チャンネルスキャンの自動化、S/T 分割、`edcbctl` | レビュー待ち |
 | 5 | `phases/5-mirakc.md` | ベースイメージと依存の更新、mirakc コンテナの pcscd 切り替え、ハードウェアエンコードの見本、HLS 方式の視聴 | 未着手 |
 | 6 | `phases/6-docs-release.md` | README / Setup の書き直し、移行手順、リリース準備 | 未着手 |
 

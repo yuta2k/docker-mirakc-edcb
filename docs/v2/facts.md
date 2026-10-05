@@ -43,7 +43,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - スキャン結果の保存(`BonCtrl/ChSetUtil.cpp` の `SaveChSet`)は、ChSet4 を上書きし、**ChSet5 は既存の内容に追加する(マージ)**。古いサービスは ChSet5 から消えない。
 - `-chscan` は `EpgDataCap_Bon -d <BonDriver>.so -chscan` で実行する(`EpgDataCap_BonMin.cpp`)。
 - ChSet4 の列: 名前、サービス名、ネットワーク名、space、ch、ONID、TSID、SID、サービス種別、ワンセグ、表示フラグ、リモコン ID。タブ区切り、UTF-8(BOM 付き)。
-- `EpgTimerSrv` の `ReloadSetting` は `ChSet5.txt` を読み直す(`ReserveManager.cpp`)。コマンドラインから呼ぶ手段は未確認。
+- `EpgTimerSrv` の `ReloadSetting` は `ChSet5.txt` を読み直す(`ReserveManager.cpp`)。ChSet4 とチューナーの一覧は読み直さない(F17、U11)。
 - デバッグログは `/var/local/edcb/EpgTimerSrvDebugLog.txt` と `EpgDataCap_Bon_DebugLog-N.txt` に出る。標準出力には出ない。
 - `HttpPublicFolder` という設定キーがあり、ソースで読まれている。Legacy WebUI からは変更できない。
 - Legacy WebUI から変更できないキー: `HttpAccessControlList`、`EnableHttpSrv`、`HttpPort`、`HttpPublicFolder`、`HttpNumThreads`、`BonCtrl.ini` の `EpgCapTimeOut` / `ChChgTimeOut`。
@@ -80,6 +80,27 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - Linux 版のデバッグログ(`EpgTimerSrvDebugLog.txt`)は UTF-8、追記で書かれ、ローテーションしない。
 - Legacy WebUI の各ページは、リクエストのたびに `dofile` で `util.lua` を読み込む。設定ページの POST には、同じページの GET で得た CSRF トークン(`ctok`)が要る。
 - EMWUI のリポジトリの `LICENSE/` はディレクトリで、同梱しているサードパーティのライブラリ(Material Symbols、hls.js など)のライセンスが入っている。EMWUI 自身のライセンスではない。
+
+### F16. チャンネルスキャンの動き(フェーズ 4 で確認、`work-plus-s-260904`)
+
+- `EpgDataCap_Bon -d <BonDriver> -chscan` は、BonDriver の全 space・全 ch を順に選局する。終わると `BonCtrl/ChSetUtil.cpp` の `SaveChSet` で、`Setting/<BonDriver の拡張子を除いた名前>(<チューナー名>).ChSet4.txt` を**直接上書き**し、`Setting/ChSet5.txt` に見つけたサービスを足す。チューナー名付きの ChSet4 を書いたときは、`<名前>().ChSet4.txt` を消す。
+- **ChSet5 への追加は、同じ ONID / TSID / SID の既存の行を置き換える**(`CParseChText5::AddCh` が `itemMap[key] = item`)。スキャンで見つかったサービスの EPG 取得対象・検索対象のフラグは、映像サービスなら 1、それ以外は 0 に戻る。利用者が変えたフラグは、`--rebuild` に限らず、再スキャンのたびに失われる。見つからなかったサービスは消えない。
+- サービスが 1 つも見つからなくても、完了すると `SaveChSet` を呼ぶ。中身の無い ChSet4(BOM だけ)を書き、`ChSet5.txt` が無ければ空のファイルを作る。
+- 途中で止める(SIGTERM)と保存しない。終了コードは、引数の誤り(2)以外は常に 0。成否は、ChSet4 ができたかと、その行数で判断するしかない。
+- 標準出力には、1 秒ごとに `\r` で始まる状態行(`Sig:… D:… S:… sp:… ch:… ChScan`)を改行なしで書き、チャンネルが進むたびに `"<チャンネル名>" <n>/<全数> remain <秒> sec` を改行付きで書く。終わると `Completed`。
+- ChSet4 / ChSet5 の書き込みは、`.tmp` に書いてから rename する(`Common/ParseText.h`)。新しく作るファイルは UTF-8(BOM 付き)、改行は LF。既存のファイルは、BOM の有無(UTF-8 か CP932 か)を保つ。`ChSet5.txt` は、行の追加が無ければ読んだ順を保ち、追加があれば ONID / TSID / SID の順に並べ直す。
+- ChSet5 の列: サービス名、ネットワーク名、ONID、TSID、SID、サービス種別、部分受信、EPG 取得対象、検索対象(`CParseChText5::ParseLine`)。
+- **選局に失敗したチャンネルは飛ばされる**(`BonCtrl.cpp` の `CheckChScan`。`ProcessSetCh` が失敗すると、次の周期で次のチャンネルへ進む)。EDCB の `SetChannel` は失敗すると 0.5 秒後に 1 回だけ再試行する(U10)。BonDriver_LinuxMirakc は、ストリームの要求が 200 以外で終わると `Tuner unavailable (rc:…, resp:…)` を出す。**mirakc は空いているチューナーが無いとき 404 を返す**(`mirakc-core/src/web/error.rs` の `TunerUnavailable`)。実機確認で、録画や EPG 取得と重なったスキャンにこの行が続けて出た(予約の無いときに再実行すると出なかった)。
+- 初回の起動のあとは EPG が無い。EDCB は `EpgTimerSrv.ini [EPG_CAP]` が無いと、毎日 23:00 に EPG を取得する(`EpgTimerSrvSetting.cpp`)。制御コマンド `CMD2_EPG_SRV_EPG_CAP_NOW`(1053)で、すぐ取得させられる(約 10 秒後に開始。EPG データの読み込み中は 208 = `CMD_ERR_BUSY`、取得中か、`GetEpg` が有効なチューナーが無いときは失敗を返す)。
+
+### F17. EpgTimerSrv の制御コマンド(フェーズ 4 で確認)
+
+- Linux では、`/var/local/edcb/EpgTimerSrvPipe` の UNIX ソケットで受ける(`Common/SendCtrlCmd.cpp`、`PipeServer.cpp`)。要求は「コマンド番号、データの長さ(どちらも 32 ビット、リトルエンディアン)、データ」、応答は「結果(1 が成功)、長さ、データ」。認証は無い(ソケットのファイルの権限だけ)。
+- 値の形(`Common/CtrlCmdUtil.cpp`): 整数はリトルエンディアン。文字列は「長さ(長さの欄を含むバイト数)+ UTF-16LE + NUL」。構造体は先頭に自分の長さ、配列は「長さ、要素数」を持つので、読まない欄は長さで読み飛ばせる。`SYSTEMTIME` は 16 ビット × 8(年、月、曜日、日、時、分、秒、ミリ秒。EpgTimerSrv の地方時)。
+- EDCB は `[BonDriver_*.so]` の `Priority` が小さい BonDriver から予約に割り当てる。プロビジョニングが Priority を振る順は、フェーズ 4 で地上波専用・衛星専用を先、両対応を後にした(`design.md` の 7.3)。
+- 「視聴に使用するBonDriver」は `EpgTimerSrv.ini [TVTEST]` の `Num` と `0`〜(`EpgTimerSrvSetting.cpp` の `viewBonList`)。NetworkTV(EMWUI の視聴)は、ChSet4 でそのサービスを受けられるチューナーのうち、この一覧にある BonDriver のものだけを、チューナー ID の大きい順(Priority の大きい側)に使う(`EpgTimerSrvMain.cpp` の `OpenNetworkTV`)。
+- `CMD2_EPG_SRV_ENUM_TUNER_PROCESS` は、待機中でないチューナーだけを返す。`tunerID` は `Priority << 16 | 連番`。`REC_SETTING_DATA.recMode` は 5 以上(`recMode / 5 % 2 != 0`)が無効の予約。
+- `ReloadSetting` は ChSet5 と ini を読み直すが、チューナーの一覧と ChSet4 は読み直さない(U11)。
 
 ### F4. BonDriver_LinuxMirakc の作り
 
@@ -162,7 +183,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 | ~~U8~~ | ~~イメージに `libssl.so.3` が入っているか~~ | 2 | **確認済み**(フェーズ 1 のビルドで確認)。`libssl.so.3` と `libcrypto.so.3` が `/lib/x86_64-linux-gnu/` にある |
 | ~~U9~~ | ~~Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か~~ | 3 | **確認済み: 前提どおり**(`Chinachu/Mirakurun` の `563a9e7`、2026-09-27)。`api.d.ts` の `Channel` は `type`(`GR` / `BS` / `CS` / `SKY`)と `channel`(文字列)、`TunerDevice` は `types`(同じ 4 種の配列)を持つ。`/api/channels` は設定ファイルの並び順のまま返し、`isDisabled` のチャンネルと不正な定義は除く(`src/Mirakurun/Channel.ts` の `_load`)。`/api/status` もある |
 | ~~U10~~ | ~~切断時に EDCB 側が再選局するか~~ | 3 | **確認済み: しない**(`work-plus-s-260904`)。`BonCtrl/BonDriverUtil.cpp` は `GetTsStream` が空なら何もせず次の周期を待つだけ。`SetChannel` の失敗時に 0.5 秒後に 1 回だけ再試行するが、受信が止まったことを理由に選局し直す処理は無い。`TunerBankCtrl.cpp` も、録画中にチャンネルを送り直すのは予約の切り替え時だけ。BonDriver 側は `RecvThread` が切断で終わり、次の `SetChannel` まで受信しない(F4)。つまり録画中に接続が切れると、その録画は終わりまで空になる |
-| U11 | コマンドラインから `ReloadSetting` を呼ぶ手段 | 4 | `EpgTimerSrv` の制御コマンド、Lua API(`edcb.ReloadSetting`)を調べる |
-| U12 | スキャンにかかる時間 | 4 | 実機確認をユーザに依頼 |
-| U13 | 録画中か・直近の予約を取得する手段 | 4 | Legacy WebUI / EMWUI の API、Lua API を調べる |
+| ~~U11~~ | ~~コマンドラインから `ReloadSetting` を呼ぶ手段~~ | 4 | **確認済み: 手段はあるが、チャンネル定義の反映には足りない**(F17)。制御コマンド `CMD2_EPG_SRV_RELOAD_SETTING`(3)と Lua の `edcb.ReloadSetting` があり、どちらも `CEpgTimerSrvMain::ReloadSetting(false)` を呼ぶ。これは `ChSet5.txt` を読み直すが、BonDriver の一覧と各 BonDriver の ChSet4 は起動時の `CReserveManager::Initialize` でしか読まない。`edcbctl chscan` のあとは再起動が要る |
+| ~~U12~~ | ~~スキャンにかかる時間~~ | 4 | **確認済み**(フェーズ 4 の実機確認、2026-10-05)。mirakc の 49 チャンネル(GR 11、BS 26、CS 12)で 388 秒、167 サービス。1 チャンネルあたり約 8 秒。上限は EDCB の待ち時間(1 チャンネルあたり `ChChgTimeOut` + `ServiceChkTimeOut` = 既定 17 秒、F4) |
+| ~~U13~~ | ~~録画中か・直近の予約を取得する手段~~ | 4 | **確認済み**(F17)。EpgTimerSrv の制御用 UNIX ソケット `/var/local/edcb/EpgTimerSrvPipe` に、`CMD2_EPG_SRV_ENUM_TUNER_PROCESS`(1066。録画中かは `recFlag`)と `CMD2_EPG_SRV_ENUM_RESERVE`(1011。予約一覧)を送る。HTTP や ACL の設定に左右されない |
 | U14 | pcscd が polkit 有効でビルドされている場合の、root / 非 root クライアントの扱い | 5 | **一部確認**(フェーズ 2 の実機確認、2026-10-05)。mirakc イメージの pcscd(Debian sid の 2.3.3-1、`polkitd` に依存)は、polkit と D-Bus の無いコンテナでは root のクライアント(`arib-b25-stream-test`)も拒み、`B_CAS_CARD::init() : code=-3` で復号できない。mirakc は `decode=1` のストリームに 404 を返し、BonDriver(`DECODE_B25=1`)は受信できない。`pcscd --disable-polkit` で復号できた。同じ版の pcscd を持つ 10/4 22:00 のイメージで視聴できていた理由は未確認。非 root のクライアントの扱いと `auth.c` はフェーズ 5 で読む |

@@ -30,6 +30,21 @@ def _running(name="EpgTimerSrv"):
     return False
 
 
+def _scanning():
+    """True while EpgDataCap_Bon scans channels (the first start waits for it)."""
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                args = f.read().split(b"\0")
+        except OSError:
+            continue
+        if args and os.path.basename(args[0]) == b"EpgDataCap_Bon" and b"-chscan" in args:
+            return True
+    return False
+
+
 def http_target(srv_ini):
     """Return (host, port, tls) of the first HTTP port, or None if HTTP is off."""
     enable = srv_ini.get("SET", "EnableHttpSrv")
@@ -72,6 +87,10 @@ def _probe(host, port, tls, timeout=5):
 
 def main(root="/var/local/edcb"):
     if not _running():
+        if _scanning():
+            # a first scan can take longer than the start period
+            print("EpgTimerSrv is not running yet: scanning channels")
+            return 0
         print("EpgTimerSrv is not running")
         return 1
     try:

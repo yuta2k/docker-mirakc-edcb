@@ -121,6 +121,10 @@ class IniFile:
                 seen.append(line.section)
         return seen
 
+    def section_names(self):
+        """Like sections(), but spelled as in the file (the first spelling)."""
+        return _sections_as_written(self)
+
     def _find(self, section, key):
         section, key = _norm(section), _norm(key)
         return [

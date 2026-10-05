@@ -4,6 +4,8 @@
 # The backends are edcb/tests/fake_mirakurun.py, run from the image under test
 # (it has python3) on a test network, so that host names are used.
 # shellcheck disable=SC2154  # IMG, TMP, REPO, PREFIX, SKIP_BUILD etc. are set by run.sh
+# EDCB_CHSCAN=never: without it, the first start would scan the fake servers
+# (channel scans are phase 4).
 
 NET=${PREFIX}-net
 FA=$(cname fake-a); FB=$(cname fake-b); FB2=$(cname fake-b2); HOLD=$(cname ip-hold)
@@ -43,9 +45,17 @@ section "T30 BonDriver patches and the template in the image"
 ok=1
 if [ "$SKIP_BUILD" = 1 ]; then
   echo "(build skipped; the patch log is not available)"
-else
-  grep -q "Applied 3 patch(es) on top of" "$TMP/build.log" || { echo "patch log missing"; ok=0; }
+elif grep -q "Applied 3 patch(es) on top of" "$TMP/build.log"; then
   grep -A4 "Applied 3 patch(es) on top of" "$TMP/build.log" | sed 's/^/  /'
+else
+  # the BonDriver layer came from the build cache, which prints no output:
+  # look for a message that only the reconnect patch (0003) adds
+  echo "(no patch log: the BonDriver layer was cached)"
+  if docker run --rm --entrypoint grep "$IMG" -qa "reconnected after" /usr/local/lib/edcb-bondriver/BonDriver_LinuxMirakc.so; then
+    echo "the BonDriver in the image has the reconnect patch"
+  else
+    echo "the BonDriver in the image is not patched"; ok=0
+  fi
 fi
 docker run --rm --entrypoint sh "$IMG" -c \
   'ls -l /usr/local/lib/edcb-bondriver; echo "--- /usr/local/lib/edcb"; ls /usr/local/lib/edcb | grep -i bondriver || echo "(no BonDriver before the start)"' |
@@ -57,7 +67,7 @@ if [ $ok = 1 ]; then result T30 PASS; else result T30 FAIL; fi
 # ---------------------------------------------------------------- T31 two backends
 section "T31 two backends by host name: 6 BonDrivers with their own ini, tuner counts"
 D31=$TMP/d31; mkdir "$D31"
-run "$C31" "$D31" --network "$NET" \
+run "$C31" "$D31" --network "$NET" -e EDCB_CHSCAN=never \
   -e EDCB_BACKEND_DEFAULT_URL=http://fake-a:40772 -e EDCB_BACKEND_VM_URL=http://fake-b:40772
 wait_log "$C31" "starting EpgTimerSrv" 90 || echo "!! no start message"
 sleep 3
@@ -156,7 +166,7 @@ docker rm -f "$C31" >/dev/null
 section "T35 one backend unreachable (192.0.2.1), invalid backend names"
 D35=$TMP/d35; mkdir "$D35"
 t0=$(date +%s)
-run "$C35" "$D35" --network "$NET" \
+run "$C35" "$D35" --network "$NET" -e EDCB_CHSCAN=never \
   -e EDCB_BACKEND_DEFAULT_URL=http://fake-a:40772 -e EDCB_BACKEND_FAR_URL=http://192.0.2.1:40772 \
   -e EDCB_BACKEND_T_URL=http://fake-a:40772 -e EDCB_BACKEND_MY_VM_URL=http://fake-a:40772 \
   -e EDCB_BACKEND_vm_URL=http://fake-a:40772
@@ -207,7 +217,7 @@ section "T39 EDCB_BACKEND_DEFAULT_TUNERS overwrites Count on every start"
 D39=$TMP/d39; mkdir "$D39"
 printf '[BonDriver_LinuxMirakc.so]\nCount=5\nPriority=0\n' > "$D39/EpgTimerSrv.ini"
 chown -R 1000:1000 "$D39"
-run "$C39" "$D39" --network "$NET" -e EDCB_BACKEND_DEFAULT_URL=http://fake-a:40772 -e EDCB_BACKEND_DEFAULT_TUNERS=M:1,T:1
+run "$C39" "$D39" --network "$NET" -e EDCB_CHSCAN=never -e EDCB_BACKEND_DEFAULT_URL=http://fake-a:40772 -e EDCB_BACKEND_DEFAULT_TUNERS=M:1,T:1
 wait_log "$C39" "starting EpgTimerSrv" 90 || echo "!! no start message"
 sleep 2
 docker logs "$C39" 2>&1 | grep -E "^provision: .*BonDriver_LinuxMirakc"

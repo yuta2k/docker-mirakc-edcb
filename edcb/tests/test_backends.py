@@ -25,7 +25,8 @@ class Capture(provision.Reporter):
 
 def run(paths, env, **kw):
     r = Capture()
-    env = {"EDCB_PROVISION_FETCH_TIMEOUT": "10", **env}
+    # channel scans are tested in test_channels.py
+    env = {"EDCB_PROVISION_FETCH_TIMEOUT": "10", "EDCB_CHSCAN": "never", **env}
     assert provision.run(env, paths, reporter=r, **kw) == 0
     return r
 
@@ -269,11 +270,12 @@ def test_two_backends_make_six_bondrivers_with_their_own_ini(tree, fake):
 
     srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
     # dual: 2 x M; split: 3 x T and 2 x S. Kinds without tuners get no section.
-    assert srv.keys("BonDriver_LinuxMirakc.so") == [("Count", "2"), ("GetEpg", "1"), ("EPGCount", "0"), ("Priority", "0")]
+    # Single-band BonDrivers come first, also across backends.
+    assert srv.keys("BonDriver_LinuxMirakc.so") == [("Count", "2"), ("GetEpg", "1"), ("EPGCount", "0"), ("Priority", "2")]
     assert srv.get("BonDriver_LinuxMirakc_VM_T.so", "Count") == "3"
-    assert srv.get("BonDriver_LinuxMirakc_VM_T.so", "Priority") == "1"
+    assert srv.get("BonDriver_LinuxMirakc_VM_T.so", "Priority") == "0"
     assert srv.get("BonDriver_LinuxMirakc_VM_S.so", "Count") == "2"
-    assert srv.get("BonDriver_LinuxMirakc_VM_S.so", "Priority") == "2"
+    assert srv.get("BonDriver_LinuxMirakc_VM_S.so", "Priority") == "1"
     for empty in ["BonDriver_LinuxMirakc_T.so", "BonDriver_LinuxMirakc_S.so", "BonDriver_LinuxMirakc_VM.so"]:
         assert not srv.has_section(empty)
     assert "provision: backend VM: http://127.0.0.1:%d (reachable), tuners M=0 T=3 S=2" % b.port in r.lines
@@ -438,13 +440,13 @@ def test_report(tree, fake):
     assert backends.report(env, tree.root, out=out) == 0
     lines = out.getvalue().splitlines()
     assert lines[0] == f"DEFAULT: http://localhost:{a.port} (reachable)"
-    assert lines[1].split() == ["kind", "BonDriver", "tuners", "Count", "ChSet4"]
-    assert lines[2].split() == ["M", "BonDriver_LinuxMirakc.so", "2", "1", "*", "yes"]
-    assert lines[3].split() == ["T", "BonDriver_LinuxMirakc_T.so", "0", "-", "no"]
+    assert lines[1].split() == ["kind", "BonDriver", "tuners", "Count", "ChSet4", "view"]
+    assert lines[2].split() == ["M", "BonDriver_LinuxMirakc.so", "2", "1", "*", "yes", "yes"]
+    assert lines[3].split() == ["T", "BonDriver_LinuxMirakc_T.so", "0", "-", "no", "no"]
     assert "  * Count differs from the tuners of the backend" in lines
     assert "  channels: 5 (GR 2, BS 2, CS 1)" in lines
     vm = lines.index(f"VM: http://127.0.0.1:{b.port} (reachable)")
-    assert lines[vm + 3].split() == ["T", "BonDriver_LinuxMirakc_VM_T.so", "3", "3", "no"]
+    assert lines[vm + 3].split() == ["T", "BonDriver_LinuxMirakc_VM_T.so", "3", "3", "no", "yes"]
 
     b.stop()
     out = io.StringIO()
@@ -508,18 +510,63 @@ def test_a_failed_update_is_retried_on_the_next_start(tree, fake, monkeypatch):
     a = fake("dual")
     b = fake("dual")
     run(tree, {"EDCB_BACKEND_DEFAULT_URL": a.url}, boot=True)
-    real = backends._write_lib_file
+    real = backends.write_lib_file
 
     def failing(path, data, mode):
         if path.endswith(".so.ini"):
             raise OSError(28, "No space left on device")
         real(path, data, mode)
 
-    monkeypatch.setattr(backends, "_write_lib_file", failing)
+    monkeypatch.setattr(backends, "write_lib_file", failing)
     r = run(tree, {"EDCB_BACKEND_DEFAULT_URL": b.url}, boot=True)
     assert any("cannot write" in w for w in r.warning_lines)
-    monkeypatch.setattr(backends, "_write_lib_file", real)
+    monkeypatch.setattr(backends, "write_lib_file", real)
     r = run(tree, {"EDCB_BACKEND_DEFAULT_URL": b.url}, boot=True)
     assert not any("not created by the provisioning" in w for w in r.warning_lines)
     conf = read_ini(os.path.join(tree.lib, "BonDriver_LinuxMirakc.so.ini"))
     assert conf.get("GLOBAL", "SERVER_PORT") == str(b.port)
+
+
+def test_single_band_bondrivers_are_used_before_dual_ones(tree, fake):
+    # mixed: M=2, T=1, S=2. EDCB uses the smallest Priority first; a satellite
+    # recording on a dual tuner would leave one terrestrial recording without one
+    run(tree, {"EDCB_BACKEND_DEFAULT_URL": fake("mixed").url}, boot=True)
+    srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
+    priorities = {n: srv.get(n, "Priority") for n in ("BonDriver_LinuxMirakc_T.so", "BonDriver_LinuxMirakc_S.so", "BonDriver_LinuxMirakc.so")}
+    assert priorities == {"BonDriver_LinuxMirakc_T.so": "0", "BonDriver_LinuxMirakc_S.so": "1", "BonDriver_LinuxMirakc.so": "2"}
+
+
+def test_viewing_list_is_written_only_when_absent(tree, fake):
+    a, b = fake("dual"), fake("split")
+    run(tree, {"EDCB_BACKEND_DEFAULT_URL": a.url}, boot=True)
+    srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
+    assert srv.keys("TVTEST") == [("Num", "1"), ("0", "BonDriver_LinuxMirakc.so")]
+    # a backend added later is not added to the list of the user
+    r = run(tree, {"EDCB_BACKEND_DEFAULT_URL": a.url, "EDCB_BACKEND_VM_URL": b.url}, boot=True)
+    srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
+    assert srv.keys("TVTEST") == [("Num", "1"), ("0", "BonDriver_LinuxMirakc.so")]
+    assert not any("TVTEST" in line for line in r.lines)
+    out = io.StringIO()
+    backends.report({"EDCB_BACKEND_DEFAULT_URL": a.url, "EDCB_BACKEND_VM_URL": b.url}, tree.root, out=out)
+    rows = {line.split()[1]: line.split()[-1] for line in out.getvalue().splitlines() if line.startswith("  ") and ".so" in line}
+    assert rows["BonDriver_LinuxMirakc.so"] == "yes"
+    assert rows["BonDriver_LinuxMirakc_VM_T.so"] == "no"
+
+
+def test_viewing_list_has_every_bondriver_with_tuners(tree, fake):
+    run(tree, two_backends(fake("dual"), fake("split")), boot=True)
+    srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
+    assert srv.keys("TVTEST") == [
+        ("Num", "3"),
+        ("0", "BonDriver_LinuxMirakc.so"),
+        ("1", "BonDriver_LinuxMirakc_VM_T.so"),
+        ("2", "BonDriver_LinuxMirakc_VM_S.so"),
+    ]
+
+
+def test_viewing_list_of_the_user_is_kept(tree, fake):
+    with open(os.path.join(tree.root, "EpgTimerSrv.ini"), "w") as f:
+        f.write("[TVTEST]\nNum=0\n")
+    run(tree, {"EDCB_BACKEND_DEFAULT_URL": fake("dual").url}, boot=True)
+    srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
+    assert srv.keys("TVTEST") == [("Num", "0")]

@@ -4,7 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 
-from . import apply, backends, config, fsutil, httppublic, initfiles
+from . import apply, backends, channels, config, fsutil, httppublic, initfiles
 from .state import State
 
 
@@ -59,7 +59,7 @@ def setup_backends(env, paths, owner, *, diff, r, fetch=None):
     """Fetch the backends, install their BonDrivers and return the tuner count entries.
 
     Never raises: a backend problem must not keep EpgTimerSrv from starting.
-    Returns (entries, number of changes).
+    Returns (backends, their Info by name, entries, number of changes).
     """
     try:
         found, warnings = backends.parse_env(env)
@@ -72,10 +72,24 @@ def setup_backends(env, paths, owner, *, diff, r, fetch=None):
         changes = backends.install_bondrivers(
             found, paths.lib, paths.bondriver, dry_run=diff, log=r.log, warn=r.warn
         )
-        return backends.tuner_entries(paths.root, found, infos, warn=r.warn), changes
+        return found, infos, backends.tuner_entries(paths.root, found, infos, warn=r.warn), changes
     except Exception as e:  # noqa: BLE001 - see the docstring
         r.warn(f"backends are not set up: {type(e).__name__}: {e}")
-        return [], 0
+        return [], {}, [], 0
+
+
+def setup_channels(env, paths, found, infos, state, backup, owner, *, diff, r):
+    """Scan on the first start, split the scans into ChSet4 files (design.md 8).
+
+    Never raises, like setup_backends. Returns the number of changes.
+    """
+    try:
+        return channels.boot(
+            env, paths, found, infos, state, backup, owner, dry_run=diff, log=r.log, warn=r.warn
+        )
+    except Exception as e:  # noqa: BLE001 - see the docstring
+        r.warn(f"channel files are not set up: {type(e).__name__}: {e}")
+        return 0
 
 
 def run(env, paths, *, diff=False, boot=False, reporter=None, fetch=None):
@@ -105,8 +119,9 @@ def run(env, paths, *, diff=False, boot=False, reporter=None, fetch=None):
         warn=r.warn,
     )
 
-    entries, changes = setup_backends(env, paths, owner, diff=diff, r=r, fetch=fetch)
+    found, infos, entries, changes = setup_backends(env, paths, owner, diff=diff, r=r, fetch=fetch)
     count += changes
+    count += setup_channels(env, paths, found, infos, state, backup, owner, diff=diff, r=r)
 
     plan = config.collect(env, paths.root, paths.overrides, boot=boot, extra=entries)
     results = apply.compute(plan, paths.root)

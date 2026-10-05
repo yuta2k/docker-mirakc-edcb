@@ -7,7 +7,7 @@ import argparse
 import os
 import sys
 
-from . import backends, fsutil, legacy, provision
+from . import backends, channels, ctrlcmd, fsutil, legacy, provision
 
 
 def _cmd_provision(args, env):
@@ -45,6 +45,65 @@ def _cmd_backends(args, env):
     return backends.report(env, root, out=sys.stdout)
 
 
+RESTART_HINT = "Restart the container to have EDCB load the channel files: docker compose restart edcb"
+
+
+def _print_status(root, out):
+    """Print the recording state. Return True if recording, None if unknown."""
+    try:
+        lines, busy = ctrlcmd.summary(root)
+    except (OSError, ctrlcmd.CtrlCmdError) as e:
+        print(f"EpgTimerSrv: cannot ask ({e}); is it running?", file=out)
+        return None
+    for line in lines:
+        print(line, file=out)
+    return busy
+
+
+def _cmd_chscan(args, env):
+    paths = provision.Paths.from_env(env)
+    r = provision.Reporter()
+    rc = channels.command(
+        env,
+        paths,
+        args.names,
+        all_backends=args.all,
+        rebuild=args.rebuild,
+        force=args.force,
+        log=r.log,
+        warn=r.warn,
+    )
+    if rc == 0:
+        # EpgTimerSrv reads the ChSet4 files and its tuner list only when it
+        # starts; ReloadSetting rereads ChSet5 alone (facts.md U11)
+        print(RESTART_HINT)
+        print("EPG of the scanned channels is captured right after the restart.")
+        if _print_status(paths.root, sys.stdout):
+            print("WARNING: a restart now stops the recording in progress", file=sys.stderr)
+    return rc
+
+
+def _cmd_epgcap(args, env):
+    """Used by the entrypoint after a scan: one EPG capture once EpgTimerSrv is ready."""
+    root = provision.Paths.from_env(env).root
+    marker = os.path.join(root, channels.EPGCAP_PENDING_REL)
+    if not os.path.exists(marker):
+        return 0
+    r = provision.Reporter()
+    if not ctrlcmd.request_epg_capture(root, log=r.log):
+        return 1
+    try:
+        os.remove(marker)
+    except FileNotFoundError:
+        pass
+    return 0
+
+
+def _cmd_status(args, env):
+    busy = _print_status(provision.Paths.from_env(env).root, sys.stdout)
+    return 1 if busy is None else 0
+
+
 def main(argv=None, env=None):
     env = dict(os.environ if env is None else env)
     parser = argparse.ArgumentParser(prog="edcbctl", description="Control commands for the EDCB container.")
@@ -62,6 +121,20 @@ def main(argv=None, env=None):
 
     p = sub.add_parser("backends", help="show the backends, their tuners and the tuner counts EDCB uses")
     p.set_defaults(func=_cmd_backends)
+
+    p = sub.add_parser("chscan", help="scan the channels of backends and make their channel files")
+    p.add_argument("names", nargs="*", metavar="NAME", help="backends to scan (DEFAULT, ...)")
+    p.add_argument("--all", action="store_true", help="scan every backend")
+    p.add_argument("--rebuild", action="store_true", help="make ChSet5.txt again from the scans of every backend")
+    p.add_argument("--force", action="store_true", help="back up and replace channel files the provisioning did not make")
+    p.set_defaults(func=_cmd_chscan)
+
+    p = sub.add_parser("status", help="show whether EDCB is recording and the next reservation")
+    p.set_defaults(func=_cmd_status)
+
+    # used by the entrypoint after a channel scan
+    p = sub.add_parser("epgcap-pending")
+    p.set_defaults(func=_cmd_epgcap)
 
     args = parser.parse_args(argv)
     return args.func(args, env)

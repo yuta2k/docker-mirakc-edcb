@@ -66,6 +66,14 @@ _SKY = [
     _channel("SKY", "SKY1", "SKY1", [(1, 1001, "SKY Service A")]),
 ]
 
+_SPLIT_TUNERS = [
+    _tuner(0, ["GR"]),
+    _tuner(1, ["GR"]),
+    _tuner(2, ["GR"]),
+    _tuner(3, ["BS", "CS"]),
+    _tuner(4, ["BS", "CS"]),
+]
+
 # Tuner layouts. "expected" is the classification of docs/v2/design.md 7.2
 # (M: GR and BS/CS, T: GR only, S: BS/CS only; others are not counted).
 SCENARIOS = {
@@ -77,13 +85,7 @@ SCENARIOS = {
     },
     # terrestrial-only and satellite-only tuners
     "split": {
-        "tuners": [
-            _tuner(0, ["GR"]),
-            _tuner(1, ["GR"]),
-            _tuner(2, ["GR"]),
-            _tuner(3, ["BS", "CS"]),
-            _tuner(4, ["BS", "CS"]),
-        ],
+        "tuners": _SPLIT_TUNERS,
         "channels": _GR + _BS + _CS,
         "expected": {"M": 0, "T": 3, "S": 2},
     },
@@ -98,6 +100,20 @@ SCENARIOS = {
         ],
         "channels": _GR + _BS + _CS,
         "expected": {"M": 2, "T": 1, "S": 2},
+    },
+    # GR channels on both sides of the satellite ones: the BonDriver gives
+    # each run of one type its own space (GR, BS, GR, CS = spaces 0 to 3)
+    "interleaved": {
+        "tuners": [_tuner(0, ["GR", "BS", "CS"]), _tuner(1, ["GR"]), _tuner(2, ["BS", "CS"])],
+        "channels": _GR[:1] + _BS + _GR[1:] + _CS,
+        "expected": {"M": 1, "T": 1, "S": 1},
+    },
+    # the tuners of "split" with the channels of "interleaved" (a backend
+    # whose channel list changed)
+    "split-interleaved": {
+        "tuners": _SPLIT_TUNERS,
+        "channels": _GR[:1] + _BS + _GR[1:] + _CS,
+        "expected": {"M": 0, "T": 3, "S": 2},
     },
     # SKY-only tuners are not counted
     "sky": {
