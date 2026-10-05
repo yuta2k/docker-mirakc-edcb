@@ -157,3 +157,29 @@
 
 - `scripts/check.sh`: pytest(Python 3.14、178 件成功、1 件 SKIP)、shellcheck、actionlint、compose、local-info がすべて PASS。
 - `docker compose config`(デーモン不要): mirakc を無効にした override で、`--services` が `edcb` だけになることを確かめた。ソケットのマウントの長い書式も通った。
+
+### 結合テスト(2026-10-06、ユーザが実行)
+
+`sudo tests/integration/run.sh`(コミット `bb52630`): **43 件すべて PASS**(T0〜T49 の回帰を含む)。edcb は Ubuntu 26.04 でビルドでき、パッチ、プロビジョニング、権限、ヘルスチェック、HTTPS、スキャンの確認が通った。
+
+| 確認 | 結果 |
+|---|---|
+| T50 `docker build mirakc/` | PASS |
+| T51 ソケット無しで内蔵の pcscd が起動 | PASS(ログに pcsc-lite の版) |
+| T52 ダミーのソケットをマウントすると起動しない | PASS |
+| T53 `DISABLE_PCSCD=1` で起動しない | PASS |
+| T54 `docker stop` が 10 秒を待たずに終わる(`--init` の有無の両方) | PASS |
+| T55 `docker restart` のあとも内蔵の pcscd が起動する | PASS |
+| T56 mirakc を無効にした override で、`docker compose config` が edcb だけ | PASS |
+| T57 見本が QSVEncC 無しと 8.32 でビルドでき、`h264_qsv`、`h264_vaapi`、`vainfo`、`qsvencc --version`、EpgTimerSrv が healthy | PASS |
+| T58 接続先を外したときの起動時の警告と `edcbctl prune` | PASS |
+
+### 作業 3: HLS 方式の切り分け(途中)
+
+- ユーザに、実機のバックエンドから地上波と BS の TS を 1 チャンネルずつ、30 秒ずつ取ってもらった(`decode=1`)。
+- TS 自体のデコードエラーは先頭の数件だけ(途中から受信を始めたため)。TS に由来する問題ではない。
+- EDCB の `Makefile` と同じ版の tsreadex(`master-260428`)と tsmemseg(`master-with-d-260611`)をホストでビルドし、EMWUI の `api/view` と同じ引数のパイプラインに、TS をライブと同じ速さで流して再現した(ホストの ffmpeg は 9.0.1)。
+  - fMP4 の初期化データ(moov)とセグメントはできた。ただし、**最初のセグメントまで約 16 秒**かかった。
+  - 原因: 字幕を出力に含める指定(`captionHls` の `-map 0:s? -scodec copy`)があると、ffmpeg は字幕のパケットが届くまで出力を始めない(字幕を外すと 1.7 秒で出力が始まる)。tsreadex の `-c 5` は、字幕が無いときに非表示の字幕データを差し込むが、差し込むのは **15 秒**字幕が無かったとき(`servicefilter.cpp` の `INSERT_MANAGEMENT_DETERMINE_ABSENCE_SEC`。2023-08 から。Readme の「5 秒ごと」は古い)。字幕の無い番組では、HLS の開始が約 16 秒遅れる。
+  - EMWUI のクライアント(`E3/js/ts-loader.js` の `#waitForHlsStart`)は、プレイリストにセグメントが現れるまで 200 ms ごとに問い合わせ続け、打ち切らない。遅れるだけで、それだけでは再生できない理由にならない。
+  - ホストの ffmpeg 9.0.1 では、出力の音声も正常だった(GR、BS とも約 30 秒で 590 kB)。実機の症状(音声がほぼ空、約 17 秒で Broken pipe、`mp4init` が 404)は再現しない。イメージ内の ffmpeg 8.0.1 で同じ確認をする(ユーザに依頼)。
