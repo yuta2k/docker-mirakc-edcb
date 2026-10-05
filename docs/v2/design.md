@@ -97,8 +97,9 @@ services:
 | `EDCB_BACKEND_<名前>_DECODE` | BonDriver の `DECODE_B25`(`0` / `1`) | `1` |
 
 - 名前 `DEFAULT` は特別で、BonDriver のファイル名に名前が付かない(`BonDriver_LinuxMirakc[_T|_S].so`)。
-- **互換**: `MIRAKC_ADDRESS` と `MIRAKC_PORT` が指定されていて `EDCB_BACKEND_DEFAULT_URL` が無いとき、`http://$MIRAKC_ADDRESS:$MIRAKC_PORT` を `DEFAULT` として扱う。v1.0.4 以前の綴り違い(`MIRKAC_*`)も引き続き読む。
-- 接続先が 1 つも指定されていないときは、`DEFAULT` を `http://mirakc:40772` として扱う(同梱の mirakc サービス)。
+- **互換**: `MIRAKC_ADDRESS` か `MIRAKC_PORT` が指定されていて `EDCB_BACKEND_DEFAULT_URL` が無いとき、`http://$MIRAKC_ADDRESS:$MIRAKC_PORT` を `DEFAULT` として扱う。片方だけのときは、もう片方に v1 の既定(`mirakc` / `40772`)を使う。v1.0.4 以前の綴り違い(`MIRKAC_*`)も引き続き読む。
+- 接続先が 1 つも指定されていない(`_URL` の変数が 1 つも無い)ときは、`DEFAULT` を `http://mirakc:40772` として扱う(同梱の mirakc サービス)。`DEFAULT` の URL を省略したときも同じ。`EDCB_BACKEND_DEFAULT_TUNERS` だけを書けば、同梱の mirakc のチューナー数を指定できる。
+- URL のポートを省略すると `40772`。パスは書けない。IPv6 アドレスは使えない(BonDriver が IPv4 でしか接続しない)。
 - 不正な名前や URL はエラーにせず、その接続先だけ無視して警告を出す(原則 E1)。
 
 ### 3.3 Legacy WebUI からの設定変更の許可(起動中に切り替えられること)
@@ -149,6 +150,8 @@ root で開始し、次の順に行う(フェーズ 2 の実装では、4 の所
    - タイムアウトは短くし、全体で待つ時間に上限を設ける(既定 30 秒程度)
    - 成功したら `/var/local/edcb/.provision/backend-<名前>.json` に保存する
    - 失敗したら保存済みの結果を使い、警告を出す。保存も無ければ、その接続先はチューナー 0 本として続ける
+   - 保存済みの結果の URL が今の URL と違うときは、使わない(別のサーバの情報なので)
+   - 接続先ごとに並行して取得する。1 回の要求の上限は 5 秒
 3. 接続先ごとに BonDriver を生成する(7 章)
 4. チャンネル定義を処理する(8 章)
 5. チューナー数を `EpgTimerSrv.ini` に書く(7.3)
@@ -198,6 +201,10 @@ root で開始し、次の順に行う(フェーズ 2 の実装では、4 の所
 
 それぞれに `<ファイル名>.ini` を作り、`SERVER_HOST`、`SERVER_PORT`、`SERVER_TYPE="http"`、`DECODE_B25`、`PRIORITY`、`SERVICE_SPLIT=0` を書く。`SERVER_HOST` にはホスト名をそのまま書く(BonDriver 側で名前解決する。フェーズ 3 のパッチ)。
 
+- 元の `.so` は `/usr/local/lib/edcb-bondriver/BonDriver_LinuxMirakc.so` に置く(`/usr/local/lib/edcb/` には起動時まで BonDriver が無い)。
+- 生成したファイルとハッシュを `/usr/local/lib/edcb/.edcb-provision.json` に記録する(コンテナ内のファイルなので、状態ファイルとは別にした)。記録があり、ハッシュが一致するファイルだけを書き換える。接続先を外したときは、そのファイルを消す。記録の無いファイル(利用者がマウントしたものなど)には触らず、警告する。
+- 書き換えは一時ファイルからの rename で行う(動いている EpgDataCap_Bon が読み込んだ `.so` を壊さない)。
+
 ### 7.2 チューナーの分類(`TUNERS=auto` のとき)
 
 `/api/tuners` の各チューナーの `types` で分類し、本数を数える。
@@ -213,7 +220,8 @@ root で開始し、次の順に行う(フェーズ 2 の実装では、4 の所
 
 - 種別ごとに、本数が 1 以上で、`[<BonDriver ファイル名>]` セクションが無ければ、`Count=<本数>`、`GetEpg=1`、`EPGCount=0`、`Priority=<連番>` を書く。
 - セクションが既にあり、`TUNERS=auto` で `Count` が実際の本数と違うときは、警告だけ出す。
-- `TUNERS` が明示されているときは、`Count` を毎起動で上書きする。
+- `TUNERS` が明示されているときは、`Count` を毎起動で上書きする。本数が 0 でセクションも無い種別には、何も書かない。
+- 本数が分からない(届かず、保存も無い)接続先には、何も書かず、何も警告しない。
 - `Priority` の連番は、既存のセクションの最大値の次から振る。
 
 EDCB は ChSet4 がある BonDriver だけを認識する(`facts.md` の F3)ので、本数 0 の種別は ChSet4 を作らないことで無効にする(8.3)。

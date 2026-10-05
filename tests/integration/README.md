@@ -34,6 +34,7 @@ sudo EDCBTEST_IMAGE=edcb:ci EDCBTEST_SKIP_BUILD=1 tests/integration/run.sh
 ## ホストで触るもの
 
 - このスクリプトが作った `${EDCBTEST_PREFIX}-*` という名前のコンテナ(終了時に消す)
+- このスクリプトが作ったネットワーク `${EDCBTEST_PREFIX}-net`(フェーズ 3 の偽サーバ用。終了時に消す)
 - イメージのタグ `$EDCBTEST_IMAGE` と、ビルドが失敗することを確かめる `$EDCBTEST_IMAGE-shouldfail`
 - `mktemp -d` で作る一時ディレクトリ(終了時に消す)
 - `127.0.0.1` のポート `EDCBTEST_PORT_BASE` から 3 つ
@@ -41,7 +42,7 @@ sudo EDCBTEST_IMAGE=edcb:ci EDCBTEST_SKIP_BUILD=1 tests/integration/run.sh
 
 Compose のプロジェクトは使わない。稼働中のコンテナや `edcb/ini/`、`mirakc/config.yml`、`compose.yml` には触らない。`prune` のようなホスト全体に効くコマンドも使わない。
 
-`${EDCBTEST_PREFIX}-*` のコンテナが既にあると、消さずに終了する(前回の実行が残ったものなら手で消すか、`EDCBTEST_PREFIX` を変える)。
+`${EDCBTEST_PREFIX}-*` のコンテナやネットワークが既にあると、消さずに終了する(前回の実行が残ったものなら手で消すか、`EDCBTEST_PREFIX` を変える)。
 
 ホストに `/dev/dri/renderD*` が無いときは、T6 のうち render グループの確認だけを飛ばす(`--group-add` の確認は行う)。
 
@@ -50,11 +51,13 @@ Compose のプロジェクトは使わない。稼働中のコンテナや `edcb
 - `run.sh` — 入口。設定と前提の確認、後片付け、集計
 - `lib.sh` — 共通の関数(`result`、`section`、`run`、`wait_log`、`wait_health` など)
 - `phase2.sh` — フェーズ 2 の確認(T0〜T15)。内容は `docs/v2/phases/2-provision.md` の「検証結果」
+- `phase3.sh` — フェーズ 3 の確認(T30〜T39)。偽の Mirakurun(`edcb/tests/fake_mirakurun.py`)を、テストするイメージの python3 でテスト用ネットワークに立て、ホスト名でつなぐ。T35 は到達できない接続先として `192.0.2.1`(文書用のアドレス)を使う
 - `fixtures/` — 確認で使うファイル
 
 ## 確認を足す
 
 - 新しいフェーズは `phaseN.sh` を作る。`run.sh` が `phase*.sh` をすべて番号順に読み込む。
+- 偽の Mirakurun が要る確認は、`phase3.sh` の `fake` を使う(`fake <コンテナ名> <ホスト名> <シナリオ>`)。シナリオは `edcb/tests/fake_mirakurun.py` の `SCENARIOS`。
 - コンテナ名は `cname <番号>` で作り、`run <名前> <ディレクトリ> [docker run のオプション...]` で起動する(後片付けの対象に入る)。`docker run` を直接使うときは、先に `track <名前>` を呼ぶ。
 - データは `$TMP` の下に作る。ホストのポートは `$PORT_HTTP` などの変数を使い、番号を書かない。足りなければ `run.sh` に変数を足す。
 - 結果は `result <id> "PASS ..."` / `"FAIL ..."` / `"SKIP 理由"` で出す。ホストに無い機能に依存する確認は、FAIL ではなく SKIP にする。

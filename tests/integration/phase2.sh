@@ -70,7 +70,7 @@ for p in /legacy/ /E3/; do
 done
 docker exec "$C1" python3 -c "import socket; socket.create_connection(('127.0.0.1',4510),3); print('TCP 4510 accepts connections')" || ok=0
 docker logs "$C1" 2>&1 | grep -m3 '^\[EpgTimerSrv\]' || { echo "no debug log on stdout"; ok=0; }
-docker logs "$C1" 2>&1 | grep -q "WARNING: cannot resolve 'mirakc'" && echo "unresolvable mirakc: warned, kept starting"
+docker logs "$C1" 2>&1 | grep -q "WARNING: backend DEFAULT (http://mirakc:40772) is unreachable" && echo "unresolvable mirakc: warned, kept starting"
 wait_health "$C1" healthy 90 || ok=0
 if [ $ok = 1 ]; then result T1 PASS; else result T1 FAIL; fi
 
@@ -261,8 +261,8 @@ section "T9 backend resolvable but unreachable (192.0.2.1)"
 D9=$TMP/d9; mkdir "$D9"
 run "$C9" "$D9" -e MIRAKC_ADDRESS=192.0.2.1 -e MIRAKC_PORT=40772
 wait_log "$C9" "starting EpgTimerSrv" 60; sleep 5
-docker logs "$C9" 2>&1 | grep "^entrypoint"
-docker exec "$C9" grep -E "^SERVER_(HOST|PORT)" /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
+docker logs "$C9" 2>&1 | grep -E "^(entrypoint|provision: (WARNING: )?backend)"
+docker exec "$C9" grep -E "^SERVER_(HOST|PORT)" /usr/local/lib/edcb/BonDriver_LinuxMirakc.so.ini
 if docker exec "$C9" pgrep -x EpgTimerSrv >/dev/null; then result T9 PASS; else result T9 FAIL; fi
 docker rm -f "$C9" >/dev/null
 

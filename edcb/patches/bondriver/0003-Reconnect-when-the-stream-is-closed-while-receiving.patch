@@ -1,0 +1,302 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: docker-mirakc-edcb <docker-mirakc-edcb@localhost>
+Date: Mon, 5 Oct 2026 02:45:25 +0900
+Subject: [PATCH 3/3] Reconnect when the stream is closed while receiving
+
+When the server closed the stream or the connection failed, the
+receiving thread ended and nothing was received until the next
+SetChannel(). EDCB does not tune again by itself, so a restart of
+mirakc / Mirakurun lost the rest of every running recording.
+
+Request the stream of the current channel again, after 1, 2, 4 and then
+every 5 seconds, until it succeeds or SetChannel() / CloseTuner() stops
+the thread. Stopping now shuts the socket down for both directions under
+a lock (abort()), which wakes up a blocked recv() or connect() at once;
+further connects fail until resume(). The socket is initialized to -1.
+---
+ src/BonDriver_LinuxMirakc.cpp | 63 +++++++++++++++++++++++++++--
+ src/BonDriver_LinuxMirakc.hpp |  3 ++
+ src/http_proc.hpp             | 75 +++++++++++++++++++++++++++++++++--
+ 3 files changed, 134 insertions(+), 7 deletions(-)
+
+diff --git a/src/BonDriver_LinuxMirakc.cpp b/src/BonDriver_LinuxMirakc.cpp
+index f7142ff..b2184bc 100644
+--- a/src/BonDriver_LinuxMirakc.cpp
++++ b/src/BonDriver_LinuxMirakc.cpp
+@@ -120,6 +120,7 @@ CBonTuner::CBonTuner()
+ 	m_dwCurChannel = 0xffffffff;
+ 
+ 	m_hRecvThread = 0;
++	m_szStreamUrl[0] = 0;
+ 
+ 	// GrabTsDataインスタンス作成
+ 	m_pGrabTsData = new GrabTsData();
+@@ -199,7 +200,7 @@ void CBonTuner::CloseTuner()
+ 
+ 	// スレッド終了
+ 	if (m_hRecvThread) {
+-		conn->shutdown();
++		conn->abort();
+ 		pthread_join(m_hRecvThread, NULL);
+ 		m_hRecvThread = 0;
+ 	}
+@@ -451,6 +452,8 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
+ 	// TSデータパージ
+ 	PurgeTsStream();
+ 
++	strcpy( m_szStreamUrl, url );
++
+ 	// 受信スレッド起動
+ 	int ret;
+ 	ret = pthread_create( &m_hRecvThread, NULL, CBonTuner::RecvThread, (void *)this ); 
+@@ -617,12 +620,18 @@ void *CBonTuner::RecvThread( void *pParam )
+ 		ret = pThis->conn->recvBody( buf, BUF_SIZE );
+ 		if( ret == 0 ) { // disconnect
+ 			pThis->conn->disconnect();
+-			break;
++			if( !pThis->Reconnect() ) {
++				break;
++			}
++			continue;
+ 		}
+ 		else if( ret < 0 ) { // error
+ 			ERROR_OUTPUT("recv error (%d)\n\n", ret );
+ 			pThis->conn->disconnect();
+-			break;
++			if( !pThis->Reconnect() ) {
++				break;
++			}
++			continue;
+ 		}
+ 		
+ 		pThis->m_pGrabTsData->put_TsStream( (BYTE *)buf, ret );
+@@ -634,11 +643,59 @@ void *CBonTuner::RecvThread( void *pParam )
+ 	return 0;
+ }
+ 
++// Request the stream of the current channel again after the server closed
++// it or the connection failed: EDCB does not tune again by itself, so the
++// rest of a recording would be lost. Retries until it succeeds or until
++// SetChannel() or CloseTuner() stops the receiving thread (returns FALSE).
++BOOL CBonTuner::Reconnect(void)
++{
++	char szHeader[ 64 ];
++	sprintf(szHeader, "Connection: close\r\nX-Mirakurun-Priority: %d", g_Priority);
++	char respHeader[ 512 ];
++	int respCode;
++	int rc;
++	int waitSec = 1;
++
++	if( conn->isAborted() ) {
++		return FALSE;
++	}
++	ERROR_OUTPUT( "%s: stream closed; reconnecting (%s)", g_TunerName, m_szStreamUrl );
++
++	for( int attempt = 1; ; attempt++ ) {
++		// 1, 2, 4, 5, 5, ... seconds, stopping early when aborted
++		for( int i = 0; i < waitSec * 10; i++ ) {
++			if( conn->isAborted() ) {
++				return FALSE;
++			}
++			usleep( 100 * 1000 );
++		}
++		rc = conn->sendGetRequest_WaitHeader( m_szStreamUrl, szHeader, respHeader, sizeof( respHeader ), &respCode );
++		// abort() may have come between socket() and connect(), when shutting
++		// the socket down does not stop the connect; check again after it
++		if( conn->isAborted() ) {
++			conn->disconnect();
++			return FALSE;
++		}
++		if( rc == 0 && respCode == 200 ) {
++			ERROR_OUTPUT( "%s: reconnected after %d attempt(s)", g_TunerName, attempt );
++			return TRUE;
++		}
++		conn->disconnect();
++		// do not fill the log while the server is down: the first few, then about once a minute
++		if( attempt <= 3 || attempt % 12 == 0 ) {
++			ERROR_OUTPUT( "%s: reconnect failed (attempt:%d, rc:%d, resp:%d)", g_TunerName, attempt, rc, respCode );
++		}
++		waitSec = std::min( waitSec * 2, 5 );
++	}
++}
++
+ void CBonTuner::waitForRecvThreadFinish(void)
+ {
+ 	if( m_hRecvThread > 0 ) {
++		conn->abort();
+ 		pthread_join(m_hRecvThread, NULL); // todo
+ 		m_hRecvThread = 0;
+ 	}
++	conn->resume();
+ }
+ 
+diff --git a/src/BonDriver_LinuxMirakc.hpp b/src/BonDriver_LinuxMirakc.hpp
+index 0104e21..c5e24ae 100644
+--- a/src/BonDriver_LinuxMirakc.hpp
++++ b/src/BonDriver_LinuxMirakc.hpp
+@@ -86,10 +86,13 @@ protected:
+ 	BOOL SendRequest(char *url, char **body, int *bodysize);
+ 
+ 	static void *RecvThread( void *pParam );
++	BOOL Reconnect(void);
+ 	
++
+ 	CharCodeConv m_cv;
+ 	MirakcConnectBase *conn;
+ 	pthread_t m_hRecvThread;
++	char m_szStreamUrl[ 128 ]; // stream of the current channel, requested again by Reconnect()
+ 
+ 	void waitForRecvThreadFinish(void);
+ };
+diff --git a/src/http_proc.hpp b/src/http_proc.hpp
+index ee0f47a..4253feb 100644
+--- a/src/http_proc.hpp
++++ b/src/http_proc.hpp
+@@ -16,6 +16,7 @@
+ #include <arpa/inet.h>
+ #include <netdb.h>
+ #include <sys/un.h>
++#include <pthread.h>
+ 
+ #include <algorithm>
+ 
+@@ -29,15 +30,26 @@ protected:
+ 	char buf[ 188 * 256 + 1 ];
+ 	int bufsize;
+ 
++	// guards s and aborted: abort() is called from another thread than the receiving one
++	pthread_mutex_t lock;
++	bool aborted;
++
++	int openSocket( int domain );
++
+ public:
+ 	MirakcConnectBase()
+ 	{
++		s = -1;
++		bufsize = 0;
++		aborted = false;
++		pthread_mutex_init( &lock, NULL );
+ 	}
+ 	virtual ~MirakcConnectBase()
+ 	{
+ 		if(s >= 0) {
+ 			close(s);
+ 		}
++		pthread_mutex_destroy( &lock );
+ 	}
+ 	
+ 	virtual int connect() = 0;
+@@ -50,6 +62,12 @@ public:
+ 
+ 	void disconnect();
+ 	void shutdown();
++
++	// Wake up a thread blocked on this connection and make further connects
++	// fail until resume() is called.
++	void abort();
++	void resume();
++	bool isAborted();
+ };
+ 
+ class MirakcConnectHttp : public MirakcConnectBase
+@@ -106,7 +124,10 @@ int MirakcConnectHttp::connect()
+ 		return -1;
+ 	}
+ 
+-	s = socket(AF_INET, SOCK_STREAM, 0);
++	if( openSocket( AF_INET ) < 0 ) {
++		freeaddrinfo( addr );
++		return -1;
++	}
+ 
+ 	ret = ::connect( s, addr->ai_addr, addr->ai_addrlen );
+ 
+@@ -135,7 +156,9 @@ int MirakcConnectUnix::connect()
+ {
+ 	int ret;
+ 	
+-	s = socket(AF_UNIX, SOCK_STREAM, 0);
++	if( openSocket( AF_UNIX ) < 0 ) {
++		return -1;
++	}
+ 
+ 	//ret = ::connect( s, addr->ai_addr, addr->ai_addrlen );
+ 	ret = ::connect( s, (sockaddr *)&addr, sizeof( addr ) );
+@@ -162,21 +185,66 @@ static bool appendResponceHeader( char *responceHeader, size_t responceHeaderSiz
+ 	return true;
+ }
+ 
++int MirakcConnectBase::openSocket( int domain )
++{
++	pthread_mutex_lock( &lock );
++	if( aborted ) {
++		s = -1;
++		errno = ECANCELED;
++	}
++	else {
++		s = socket( domain, SOCK_STREAM, 0 );
++	}
++	pthread_mutex_unlock( &lock );
++	return s;
++}
++
+ void MirakcConnectBase::shutdown()
+ {
++	pthread_mutex_lock( &lock );
+ 	if( s >= 0 ) {
+ 		::shutdown(s, SHUT_WR);
+ 	}
++	pthread_mutex_unlock( &lock );
+ 
+ }
+ 
+ void MirakcConnectBase::disconnect()
+ {
++	pthread_mutex_lock( &lock );
+ 	if( s >= 0 ) {
+ 	
+ 		::close(s);
+ 	}
+ 	s = -1;
++	bufsize = 0;
++	pthread_mutex_unlock( &lock );
++}
++
++void MirakcConnectBase::abort()
++{
++	pthread_mutex_lock( &lock );
++	aborted = true;
++	if( s >= 0 ) {
++		// makes a blocked recv() return 0 and cancels a connect() in progress
++		::shutdown(s, SHUT_RDWR);
++	}
++	pthread_mutex_unlock( &lock );
++}
++
++void MirakcConnectBase::resume()
++{
++	pthread_mutex_lock( &lock );
++	aborted = false;
++	pthread_mutex_unlock( &lock );
++}
++
++bool MirakcConnectBase::isAborted()
++{
++	pthread_mutex_lock( &lock );
++	bool ret = aborted;
++	pthread_mutex_unlock( &lock );
++	return ret;
+ }
+ 
+ int MirakcConnectBase::sendGetRequest_WaitBody( char *url, char *requestHeader, char *responceHeader, size_t responceHeaderSize, int *responceCode, char **body, int *bodysize )
+@@ -318,8 +386,7 @@ int MirakcConnectBase::sendGetRequest_WaitHeader( char *url, char *requestHeader
+ 			return -1;
+ 		}
+ 		if( ret == 0 ){
+-			close(s);
+-			s=-1;
++			disconnect();
+ 			return 0;
+ 		}
+ 		buf[ ret ] = 0;

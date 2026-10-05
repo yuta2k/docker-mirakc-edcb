@@ -85,12 +85,16 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 
 - ini は `<.so 自身のパス>.ini` から読む(`dladdr` の結果に `.ini` を付ける)。別名で置けば、接続先ごとに ini を分けられる。現在のイメージは 3 つの ini を同じファイルへのシンボリックリンクにしているので、別名ごとに別 ini が読まれることは未実証。**コピーで置くこと。**
 - ini のキー: `SERVER_HOST`、`SERVER_PORT`、`SERVER_SOCKPATH`、`SERVER_TYPE`(`http` / `unix`)、`DECODE_B25`、`PRIORITY`、`SERVICE_SPLIT`。
-- **ホスト名が使えない理由**: `http_proc.hpp` の `MirakcConnectHttp` が `inet_addr()` しか呼んでいない。`getaddrinfo` を使うコードは `#if 0` で残っている。
+- **ホスト名が使えない理由**: `http_proc.hpp` の `MirakcConnectHttp` が `inet_addr()` しか呼んでいない。`getaddrinfo` を使うコードは `#if 0` で残っている。フェーズ 3 のパッチ(`edcb/patches/bondriver/`)で、接続のたびに `getaddrinfo` で引くようにした。
 - **チューニング空間の決まり方**: 起動時に `/api/channels` を取得し、**同じ `type` が連続する区間**ごとに space を 1 つ割り当てる(`InitChannel`)。space 内の ch は、その区間内の 0 始まりの位置。つまり ChSet4 の space / ch は、mirakc 側のチャンネルの並び順に対する位置インデックス。mirakc の `config.yml` でチャンネルを途中に足すと、番号がずれる。
 - `SERVICE_SPLIT=1` のときは `/api/services` を使う。既定は 0。
-- **固定長バッファ**: API 応答の本体を `malloc(128 * 1024)` に、応答ヘッダを `char respHeader[512]` に、長さを確認せずコピーしている(`SendRequest`、`sendGetRequest_WaitBody`)。
-- **再接続なし**: 受信スレッド(`RecvThread`)は切断を検知すると `disconnect()` して終了する。再接続の処理は見当たらない。
+- **固定長バッファ**: API 応答の本体を `malloc(128 * 1024)` に、応答ヘッダを `char respHeader[512]` に、長さを確認せずコピーしている(`SendRequest`、`sendGetRequest_WaitBody`)。フェーズ 3 のパッチで、ヘッダは長さを確認し、本体は 16 MiB まで広げるようにした。
+- **再接続なし**: 受信スレッド(`RecvThread`)は切断を検知すると `disconnect()` して終了する。再接続の処理は見当たらない。フェーズ 3 のパッチで、同じチャンネルへ再接続するようにした(U10)。
 - 優先度は `X-Mirakurun-Priority` ヘッダで送る。
+- ini の読み込み(`config.cpp`)は、`;` で始まる行を注釈として飛ばし、1 行 255 バイトまで読む。
+- 別名でコピーした `.so` は、それぞれ自分の名前に `.ini` を付けたファイルを読む(フェーズ 3 で、パッチ済みの `.so` をホストでビルドして確認。`BonDriver_LinuxMirakc_X.so` にコピーした `.so` が `BonDriver_LinuxMirakc_X.so.ini` の `PRIORITY=7` を偽サーバへ送った。コンテナ内では結合テスト T32 / T33 で確かめる)。
+- `EpgTimerSrv.ini` の `[BonDriver_*.so]` セクションが無いとき、EDCB は `Count` を 0、`Priority` を 0xFFFF(最後)として扱う(`EpgTimerSrvSetting.cpp`)。`Priority` は小さいほど先に使われ、Legacy WebUI は 0 からの連番で書く。
+- `EpgDataCap_Bon -chscan` は、チャンネルごとに `[CHSCAN] ChChgTimeOut`(既定 9 秒)+ `ServiceChkTimeOut`(既定 8 秒)まで待つ(`BonCtrl.cpp`)。
 
 ### F5. mirakc / Mirakurun の API
 
@@ -156,8 +160,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 | ~~U6~~ | ~~SIGTERM を受けた EpgTimerSrv / EpgDataCap_Bon が録画ファイルを正常に閉じるか、所要時間~~ | 2 | **確認済み**(F14)。正常に閉じる。実機の録画中で 2.2 秒。`stop_grace_period` は 2 分にした |
 | ~~U7~~ | ~~Linux 版の `ssl_cert.pem` の置き場所(`/var/local/edcb` か)~~ | 2 | **確認済み: `/var/local/edcb/ssl_cert.pem`**(`HttpServer.cpp` が `Common.ini` と同じフォルダの `ssl_` に `cert.pem` を付けて組み立てる。`ssl_peer.pem`、`glpasswd` も同じフォルダ)。フェーズ 2 の検証で、自己署名の証明書を置いて `https://…:5511/E3/` が 200 を返した |
 | ~~U8~~ | ~~イメージに `libssl.so.3` が入っているか~~ | 2 | **確認済み**(フェーズ 1 のビルドで確認)。`libssl.so.3` と `libcrypto.so.3` が `/lib/x86_64-linux-gnu/` にある |
-| U9 | Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か | 3 | Mirakurun の API 定義を読む |
-| U10 | 切断時に EDCB 側が再選局するか | 3 | `BonCtrl` の受信監視部分を読む。しないなら BonDriver 側に再接続を入れるかユーザに相談 |
+| ~~U9~~ | ~~Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か~~ | 3 | **確認済み: 前提どおり**(`Chinachu/Mirakurun` の `563a9e7`、2026-09-27)。`api.d.ts` の `Channel` は `type`(`GR` / `BS` / `CS` / `SKY`)と `channel`(文字列)、`TunerDevice` は `types`(同じ 4 種の配列)を持つ。`/api/channels` は設定ファイルの並び順のまま返し、`isDisabled` のチャンネルと不正な定義は除く(`src/Mirakurun/Channel.ts` の `_load`)。`/api/status` もある |
+| ~~U10~~ | ~~切断時に EDCB 側が再選局するか~~ | 3 | **確認済み: しない**(`work-plus-s-260904`)。`BonCtrl/BonDriverUtil.cpp` は `GetTsStream` が空なら何もせず次の周期を待つだけ。`SetChannel` の失敗時に 0.5 秒後に 1 回だけ再試行するが、受信が止まったことを理由に選局し直す処理は無い。`TunerBankCtrl.cpp` も、録画中にチャンネルを送り直すのは予約の切り替え時だけ。BonDriver 側は `RecvThread` が切断で終わり、次の `SetChannel` まで受信しない(F4)。つまり録画中に接続が切れると、その録画は終わりまで空になる |
 | U11 | コマンドラインから `ReloadSetting` を呼ぶ手段 | 4 | `EpgTimerSrv` の制御コマンド、Lua API(`edcb.ReloadSetting`)を調べる |
 | U12 | スキャンにかかる時間 | 4 | 実機確認をユーザに依頼 |
 | U13 | 録画中か・直近の予約を取得する手段 | 4 | Legacy WebUI / EMWUI の API、Lua API を調べる |

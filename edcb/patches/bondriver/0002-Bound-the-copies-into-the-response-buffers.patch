@@ -1,0 +1,284 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: docker-mirakc-edcb <docker-mirakc-edcb@localhost>
+Date: Mon, 5 Oct 2026 02:42:31 +0900
+Subject: [PATCH 2/3] Bound the copies into the response buffers
+
+The response header was copied into a 512-byte array and the body of
+/api/channels into a 128 KiB buffer without checking the length, so a
+long header or a large channel list (Mirakurun includes the services of
+every channel) overflowed them.
+
+- Copy the header only while it fits; fail the request otherwise.
+- Grow the body buffer as needed, up to 16 MiB; fail beyond that.
+- Fail on a response without a status line instead of dereferencing
+  NULL, and report response code 0 when none was received.
+---
+ src/BonDriver_LinuxMirakc.cpp |   9 ++-
+ src/http_proc.hpp             | 134 +++++++++++++++++++++++++---------
+ 2 files changed, 107 insertions(+), 36 deletions(-)
+
+diff --git a/src/BonDriver_LinuxMirakc.cpp b/src/BonDriver_LinuxMirakc.cpp
+index df384dc..f7142ff 100644
+--- a/src/BonDriver_LinuxMirakc.cpp
++++ b/src/BonDriver_LinuxMirakc.cpp
+@@ -437,7 +437,7 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
+ 	char respHeader[ 512 ]; // todo
+ 	int respCode;
+ 	int rc;
+-	rc = conn->sendGetRequest_WaitHeader( url, szHeader, respHeader, &respCode );
++	rc = conn->sendGetRequest_WaitHeader( url, szHeader, respHeader, sizeof( respHeader ), &respCode );
+ 	if( rc != 0 || respCode != 200 ) {
+ 		ERROR_OUTPUT( "%s: Tuner unavailable (rc:%d, resp:%d)", g_TunerName, rc, respCode );
+ 		conn->disconnect();
+@@ -580,15 +580,18 @@ BOOL CBonTuner::SendRequest(char *url, char **body, int *bodysize)
+ 
+ 		int respCode;
+ 		char respHeader[ 512 ]; // todo
+-		*body = (char *)malloc( 128 * 1024 ); // todo 128k 
+ 
+ 		DEBUG_OUTPUT( "request:url:%s", url);
+ 
+ 		waitForRecvThreadFinish();
+ 
+-		rc = conn->sendGetRequest_WaitBody( url, szHeader, respHeader, &respCode, *body, bodysize );
++		rc = conn->sendGetRequest_WaitBody( url, szHeader, respHeader, sizeof( respHeader ), &respCode, body, bodysize );
+ 		if( rc != 0 || respCode != 200 ) {
+ 			ERROR_OUTPUT( "%s: Tuner unavailable (rc:%d, resp:%d)", g_TunerName, rc, respCode );
++			if( rc == 0 ) {
++				free( *body );
++				*body = NULL;
++			}
+ 			break;
+ 		}
+ 
+diff --git a/src/http_proc.hpp b/src/http_proc.hpp
+index 91491c6..ee0f47a 100644
+--- a/src/http_proc.hpp
++++ b/src/http_proc.hpp
+@@ -42,8 +42,9 @@ public:
+ 	
+ 	virtual int connect() = 0;
+ 
+-	int sendGetRequest_WaitBody( char *url, char *requestHeader, char *responceHeader, int *responceCode, char *body, int *bodysize );
+-	int sendGetRequest_WaitHeader( char *url, char *requestHeader, char *responceHeader, int *responceCode );
++	// body: allocated here (malloc) and terminated with NUL; free() it after a success
++	int sendGetRequest_WaitBody( char *url, char *requestHeader, char *responceHeader, size_t responceHeaderSize, int *responceCode, char **body, int *bodysize );
++	int sendGetRequest_WaitHeader( char *url, char *requestHeader, char *responceHeader, size_t responceHeaderSize, int *responceCode );
+ 
+ 	int recvBody( char *body, size_t size );
+ 
+@@ -145,6 +146,22 @@ int MirakcConnectUnix::connect()
+ 
+ /*************************************************/
+ 
++// upper limit of an API response body such as /api/channels
++#define MAX_BODY_SIZE ( 16 * 1024 * 1024 )
++
++// Copy a part of the response header into responceHeader without overflowing it.
++// Returns false if the header does not fit.
++static bool appendResponceHeader( char *responceHeader, size_t responceHeaderSize, size_t *used, const char *data, size_t len )
++{
++	if( *used + len + 1 > responceHeaderSize ) {
++		return false;
++	}
++	::memcpy( responceHeader + *used, data, len );
++	*used += len;
++	responceHeader[ *used ] = 0;
++	return true;
++}
++
+ void MirakcConnectBase::shutdown()
+ {
+ 	if( s >= 0 ) {
+@@ -162,15 +179,26 @@ void MirakcConnectBase::disconnect()
+ 	s = -1;
+ }
+ 
+-int MirakcConnectBase::sendGetRequest_WaitBody( char *url, char *requestHeader, char *responceHeader, int *responceCode, char *body, int *bodysize )
++int MirakcConnectBase::sendGetRequest_WaitBody( char *url, char *requestHeader, char *responceHeader, size_t responceHeaderSize, int *responceCode, char **body, int *bodysize )
+ {
+ 	int ret;
+ 	int state = 0;
+-	char *p_startbody = body;
++	size_t headerUsed = 0;
++	size_t bodyUsed = 0;
++	size_t bodyCapacity = 128 * 1024;
++
++	*responceCode = 0;
++	*body = (char *)malloc( bodyCapacity );
++	if( *body == NULL ) {
++		return -1;
++	}
+ 
+ 	ret = connect();
+ 	if( ret < 0 ) {
+-		return -errno - 2000;
++		ret = -errno - 2000;
++		free( *body );
++		*body = NULL;
++		return ret;
+ 	}
+ 
+ 	char send_string[ 2024 ];
+@@ -178,18 +206,21 @@ int MirakcConnectBase::sendGetRequest_WaitBody( char *url, char *requestHeader,
+ 
+ 	ret = ::send( s, send_string, strlen( send_string ), 0 );
+ 	if( ret < 0 ) {
+-		
++		free( *body );
++		*body = NULL;
+ 		return ret - 1000;
+ 	}
+ 
+ 	for(;;) {
+ 		ret = ::recv( s, buf, sizeof(buf) - 1, 0 );
+ 		if( ret < 0 ){
++			free( *body );
++			*body = NULL;
+ 			return -1;
+ 		}
+ 		if( ret == 0 ){
+-			*body = 0;
+-			*bodysize = body - p_startbody;
++			(*body)[ bodyUsed ] = 0;
++			*bodysize = (int)bodyUsed;
+ 
+ 			disconnect();
+ 			return 0;
+@@ -199,45 +230,76 @@ int MirakcConnectBase::sendGetRequest_WaitBody( char *url, char *requestHeader,
+ 		if( state == 0 ) { // state reading
+ 			char *p;
+ 			p = ::strchr( buf, ' ' );
++			if( p == NULL ) {
++				ERROR_OUTPUT1( "invalid response" );
++				free( *body );
++				*body = NULL;
++				return -3;
++			}
+ 			*responceCode = ::atoi( p + 1 );
+ 			state = 1;
+ 		}
+ 		if( state == 1 ){ // break through
+ 			char *p;
++			size_t len;
+ 			
+ 			p = ::strstr( buf, "\r\n\r\n" );
+ 			if( p != NULL ) {
+ 				p += 4;
+-				::memcpy( responceHeader, buf, p - buf );
+-				responceHeader += p - buf;
+-				*responceHeader = 0;
+-
+-				::memmove( buf, p, ret - ( p - buf ) );
+-				ret = ret - ( p - buf );
+-
+-				state = 2;
+-			
++				len = p - buf;
+ 			}
+ 			else {
+-				::memcpy( responceHeader, buf, ret );
+-				responceHeader += ret;
++				len = ret;
++			}
++			if( !appendResponceHeader( responceHeader, responceHeaderSize, &headerUsed, buf, len ) ) {
++				ERROR_OUTPUT( "response header is longer than %d bytes", (int)responceHeaderSize - 1 );
++				free( *body );
++				*body = NULL;
++				return -3;
++			}
++			if( p != NULL ) {
++				::memmove( buf, p, ret - len );
++				ret = ret - len;
++
++				state = 2;
+ 			}
+ 		}
+ 		
+ 		if( state == 2 ) { // ここはelseif
+-			::memcpy( body, buf, ret );
+-			body += ret;
++			// keep one byte for the terminating NUL
++			if( bodyUsed + ret + 1 > bodyCapacity ) {
++				size_t newCapacity = bodyCapacity;
++				while( bodyUsed + ret + 1 > newCapacity ) {
++					newCapacity *= 2;
++				}
++				char *newBody = NULL;
++				if( newCapacity <= MAX_BODY_SIZE ) {
++					newBody = (char *)realloc( *body, newCapacity );
++				}
++				if( newBody == NULL ) {
++					ERROR_OUTPUT( "response body is larger than %d bytes", MAX_BODY_SIZE - 1 );
++					free( *body );
++					*body = NULL;
++					return -3;
++				}
++				*body = newBody;
++				bodyCapacity = newCapacity;
++			}
++			::memcpy( *body + bodyUsed, buf, ret );
++			bodyUsed += ret;
+ 		}
+ 	}
+ 	// not reached
+ }
+ 
+ 
+-int MirakcConnectBase::sendGetRequest_WaitHeader( char *url, char *requestHeader, char *responceHeader, int *responceCode )
++int MirakcConnectBase::sendGetRequest_WaitHeader( char *url, char *requestHeader, char *responceHeader, size_t responceHeaderSize, int *responceCode )
+ {
+ 	int ret;
+ 	int state = 0;
++	size_t headerUsed = 0;
+ 
++	*responceCode = 0;
+ 	ret = connect();
+ 	if( ret < 0 ) {
+ 		return -errno - 2000;
+@@ -265,28 +327,34 @@ int MirakcConnectBase::sendGetRequest_WaitHeader( char *url, char *requestHeader
+ 		if( state == 0 ) { // state reading
+ 			char *p;
+ 			p = ::strchr( buf, ' ' );
++			if( p == NULL ) {
++				ERROR_OUTPUT1( "invalid response" );
++				return -3;
++			}
+ 			*responceCode = ::atoi( p + 1 );
+ 			state = 1;
+ 		}
+ 		if( state == 1 ){ // break through
+ 			char *p;
++			size_t len;
+ 			
+ 			p = ::strstr( buf, "\r\n\r\n" );
+ 			if( p != NULL ) {
+ 				p += 4;
+-				::memcpy( responceHeader, buf, p - buf );
+-				responceHeader += p - buf;
+-				*responceHeader = 0;
+-
+-				::memmove( buf, p, ret - ( p - buf ) );
+-				ret = ret - ( p - buf );
+-
+-				state = 2;
+-			
++				len = p - buf;
+ 			}
+ 			else {
+-				::memcpy( responceHeader, buf, ret );
+-				responceHeader += ret;
++				len = ret;
++			}
++			if( !appendResponceHeader( responceHeader, responceHeaderSize, &headerUsed, buf, len ) ) {
++				ERROR_OUTPUT( "response header is longer than %d bytes", (int)responceHeaderSize - 1 );
++				return -3;
++			}
++			if( p != NULL ) {
++				::memmove( buf, p, ret - len );
++				ret = ret - len;
++
++				state = 2;
+ 			}
+ 		}
+ 		if( state == 2 ) { // 

@@ -133,7 +133,7 @@ def _acl_mixes_families(value):
     return has_v4 and has_v6
 
 
-def collect(env, root, overrides_dir, *, boot=False):
+def collect(env, root, overrides_dir, *, boot=False, extra=()):
     """Build the plan.
 
     env: mapping of environment variables.
@@ -141,6 +141,8 @@ def collect(env, root, overrides_dir, *, boot=False):
     overrides_dir: directory with the override ini files (may not exist).
     boot: True when run by the entrypoint. Resets the legacy WebUI permission
         to its start-up state; "edcbctl provision" leaves it alone.
+    extra: entries computed elsewhere (tuner counts of the backends). Forced
+        ones rank with the environment variables, the others with the defaults.
     """
     plan = Plan()
     warn = plan.warnings.append
@@ -268,6 +270,9 @@ def collect(env, root, overrides_dir, *, boot=False):
     ]
     if os.path.exists(os.path.join(root, "ssl_cert.pem")):
         defaults.append(default(SRV_INI, "SET", "HttpPort", DEFAULT_HTTPS_PORTS))
+
+    env_entries += [e for e in extra if e.force]
+    defaults += [e for e in extra if not e.force]
 
     # --- merge: env > override > default ---
     by_ident = {}

@@ -49,8 +49,16 @@ RUN apt-get update && \
 COPY --chmod=755 build/fetch-source.sh /usr/local/bin/fetch-source
 
 # BonDriver_LinuxMirakc
+# apply edcb/patches/bondriver/*.patch in order (host names, buffer bounds, reconnecting)
+COPY patches/bondriver/ /app/bondriver-patches/
 RUN fetch-source "$BON_DRIVER_REPO" "" "$BON_DRIVER_COMMIT" BonDriver_LinuxMirakc && \
   cd BonDriver_LinuxMirakc && \
+  set -- /app/bondriver-patches/*.patch && \
+  if [ ! -f "$1" ]; then echo "no patches found in /app/bondriver-patches" >&2; exit 1; fi && \
+  git -c user.name=docker-mirakc-edcb -c user.email=docker-mirakc-edcb@localhost \
+    am --3way "$@" && \
+  echo "Applied $# patch(es) on top of $BON_DRIVER_COMMIT:" && \
+  git log --oneline "$BON_DRIVER_COMMIT..HEAD" && \
   make
 
 # EDCB_Material_WebUI
@@ -160,16 +168,9 @@ RUN apt-get update && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
-# setup BonDriver_LinuxMirakc
-# after created /usr/local/lib/edcb/ by EDCB installation
-COPY --from=build /app/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so /usr/local/lib/edcb/BonDriver_LinuxMirakc.so
-COPY --from=build /app/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini_sample /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini
-# (written by the entrypoint, which runs as root)
-RUN ln -s /usr/local/lib/edcb/BonDriver_LinuxMirakc.so /usr/local/lib/edcb/BonDriver_LinuxMirakc_S.so && \
-  ln -s /usr/local/lib/edcb/BonDriver_LinuxMirakc.so /usr/local/lib/edcb/BonDriver_LinuxMirakc_T.so && \
-  ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc.so.ini && \
-  ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc_S.so.ini && \
-  ln -s /var/local/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so.ini /usr/local/lib/edcb/BonDriver_LinuxMirakc_T.so.ini
+# BonDriver_LinuxMirakc. Kept outside /usr/local/lib/edcb: the provisioning copies it
+# there under one name per backend and kind, each with its own .ini (design.md 7.1)
+COPY --from=build /app/BonDriver_LinuxMirakc/BonDriver_LinuxMirakc.so /usr/local/lib/edcb-bondriver/BonDriver_LinuxMirakc.so
 
 # entrypoint, edcbctl and the provisioning (Python, standard library only)
 COPY rootfs/ /

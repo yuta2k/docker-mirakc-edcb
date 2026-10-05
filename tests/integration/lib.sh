@@ -37,6 +37,15 @@ cname() { echo "${PREFIX}-$1"; }
 
 track() { TRACKED+=("$1"); }
 
+# Networks this run created; removed on exit after the containers.
+TRACKED_NETS=()
+
+# net_create <name>: create a bridge network for test containers
+net_create() {
+  TRACKED_NETS+=("$1")
+  docker network create "$1" >/dev/null
+}
+
 # run <name> <dir> [docker run options...]: start a detached test container
 # with <dir> as /var/local/edcb and a short health interval
 run() {
@@ -81,6 +90,7 @@ sums() { (cd "$1" && sha256sum ./*.ini Setting/*.ini .provision/webui.ini 2>/dev
 cleanup() {
   local n
   for n in "${TRACKED[@]}"; do docker rm -f "$n" >/dev/null 2>&1; done
+  for n in "${TRACKED_NETS[@]}"; do docker network rm "$n" >/dev/null 2>&1; done
   [ -n "${TMP:-}" ] && [ -d "$TMP" ] && rm -rf "$TMP"
 }
 

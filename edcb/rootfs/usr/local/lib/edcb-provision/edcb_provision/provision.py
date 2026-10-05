@@ -4,7 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 
-from . import apply, config, fsutil, httppublic, initfiles
+from . import apply, backends, config, fsutil, httppublic, initfiles
 from .state import State
 
 
@@ -14,6 +14,8 @@ class Paths:
     overrides: str = "/etc/edcb/overrides"
     share: str = "/usr/local/share/edcb"  # HttpPublic/ and Setting/ of the image
     edcb_ini: str = "/usr/local/src/EDCB/ini"  # EDCB's ini/ (sources of the initial files)
+    lib: str = "/usr/local/lib/edcb"  # where EDCB loads BonDrivers from
+    bondriver: str = "/usr/local/lib/edcb-bondriver/BonDriver_LinuxMirakc.so"  # copied into lib
 
     @classmethod
     def from_env(cls, env):
@@ -23,6 +25,8 @@ class Paths:
         p.overrides = env.get("EDCB_PROVISION_OVERRIDES", p.overrides)
         p.share = env.get("EDCB_PROVISION_SHARE", p.share)
         p.edcb_ini = env.get("EDCB_PROVISION_EDCB_INI", p.edcb_ini)
+        p.lib = env.get("EDCB_PROVISION_LIB", p.lib)
+        p.bondriver = env.get("EDCB_PROVISION_BONDRIVER", p.bondriver)
         return p
 
 
@@ -43,7 +47,38 @@ class Reporter:
         print(f"{PREFIX} WARNING: {msg}", file=self.err or sys.stderr, flush=True)
 
 
-def run(env, paths, *, diff=False, boot=False, reporter=None):
+def _fetch_timeout(env):
+    # EDCB_PROVISION_FETCH_TIMEOUT is for tests only
+    try:
+        return max(1.0, float(env.get("EDCB_PROVISION_FETCH_TIMEOUT", backends.TOTAL_TIMEOUT)))
+    except ValueError:
+        return backends.TOTAL_TIMEOUT
+
+
+def setup_backends(env, paths, owner, *, diff, r, fetch=None):
+    """Fetch the backends, install their BonDrivers and return the tuner count entries.
+
+    Never raises: a backend problem must not keep EpgTimerSrv from starting.
+    Returns (entries, number of changes).
+    """
+    try:
+        found, warnings = backends.parse_env(env)
+        for w in warnings:
+            r.warn(w)
+        live = (fetch or backends.fetch_all)(found, _fetch_timeout(env))
+        infos = backends.resolve(paths.root, found, live, owner, dry_run=diff, log=r.log, warn=r.warn)
+        for b in found:
+            r.log(backends.describe(b, infos[b.name]))
+        changes = backends.install_bondrivers(
+            found, paths.lib, paths.bondriver, dry_run=diff, log=r.log, warn=r.warn
+        )
+        return backends.tuner_entries(paths.root, found, infos, warn=r.warn), changes
+    except Exception as e:  # noqa: BLE001 - see the docstring
+        r.warn(f"backends are not set up: {type(e).__name__}: {e}")
+        return [], 0
+
+
+def run(env, paths, *, diff=False, boot=False, reporter=None, fetch=None):
     r = reporter or Reporter()
     owner = fsutil.Owner.from_env(env)
     if not os.path.isdir(paths.root):
@@ -70,7 +105,10 @@ def run(env, paths, *, diff=False, boot=False, reporter=None):
         warn=r.warn,
     )
 
-    plan = config.collect(env, paths.root, paths.overrides, boot=boot)
+    entries, changes = setup_backends(env, paths, owner, diff=diff, r=r, fetch=fetch)
+    count += changes
+
+    plan = config.collect(env, paths.root, paths.overrides, boot=boot, extra=entries)
     results = apply.compute(plan, paths.root)
     for w in plan.warnings:
         r.warn(w)
