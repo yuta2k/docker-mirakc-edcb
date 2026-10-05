@@ -103,6 +103,9 @@ dual = [p for s, p in prio.items() if s in ("BonDriver_LinuxMirakc.so",)]
 single = [p for s, p in prio.items() if s.endswith(("_T.so", "_S.so"))]
 sys.exit(0 if dual and single and max(single) < min(dual) else 1)
 EOF2
+# the BonDrivers used for viewing: every BonDriver with tuners, written on the first start
+echo "--- [TVTEST]"; grep -A6 '^\[TVTEST\]' "$D40/EpgTimerSrv.ini"
+grep -A1 '^\[TVTEST\]' "$D40/EpgTimerSrv.ini" | grep -qx "Num=5" || { echo "the viewing list does not have 5 BonDrivers"; ok=0; }
 # the request for an EPG capture after the scan reached EpgTimerSrv
 docker logs "$C40" 2>&1 | grep "EPG capture" || { echo "no answer to the EPG capture request"; ok=0; }
 [ -e "$D40/.provision/epgcap-pending" ] && { echo "EPG capture still pending"; ok=0; }
