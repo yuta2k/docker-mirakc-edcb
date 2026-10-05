@@ -45,9 +45,17 @@ section "T30 BonDriver patches and the template in the image"
 ok=1
 if [ "$SKIP_BUILD" = 1 ]; then
   echo "(build skipped; the patch log is not available)"
-else
-  grep -q "Applied 3 patch(es) on top of" "$TMP/build.log" || { echo "patch log missing"; ok=0; }
+elif grep -q "Applied 3 patch(es) on top of" "$TMP/build.log"; then
   grep -A4 "Applied 3 patch(es) on top of" "$TMP/build.log" | sed 's/^/  /'
+else
+  # the BonDriver layer came from the build cache, which prints no output:
+  # look for a message that only the reconnect patch (0003) adds
+  echo "(no patch log: the BonDriver layer was cached)"
+  if docker run --rm --entrypoint grep "$IMG" -qa "reconnected after" /usr/local/lib/edcb-bondriver/BonDriver_LinuxMirakc.so; then
+    echo "the BonDriver in the image has the reconnect patch"
+  else
+    echo "the BonDriver in the image is not patched"; ok=0
+  fi
 fi
 docker run --rm --entrypoint sh "$IMG" -c \
   'ls -l /usr/local/lib/edcb-bondriver; echo "--- /usr/local/lib/edcb"; ls /usr/local/lib/edcb | grep -i bondriver || echo "(no BonDriver before the start)"' |

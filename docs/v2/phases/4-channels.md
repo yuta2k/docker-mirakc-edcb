@@ -104,7 +104,12 @@
 
 - `scripts/check.sh`: すべて PASS(pytest 157 件、1 件 SKIP は下の実データのテスト)。
 - 実データの分割(`test_chset.py` の `test_split_real_data`。`EDCB_TEST_CHSET4` と `EDCB_TEST_BACKEND_JSON` に、この環境の `edcb/ini/` のファイルを指定して手元で実行。ファイルはリポジトリに入れていない): PASS。169 行が T 46 行、S 123 行に分かれ、M は元のファイルとバイト単位で一致した。
-- `tests/integration/run.sh`: **未実施**(Docker を使えないため、ユーザに依頼中)。
+- `tests/integration/run.sh`(ユーザが実行):
+  - 1 回目(ビルドあり、`4edf1f4`): pass=30 fail=3。
+    - T43、T48 が FAIL。`edcbctl status` が送るチューナーの状態の取得コマンドの番号を誤っていた。EDCB のソースの行番号(2208)を値と取り違えており、正しくは `CtrlCmdDef.h` の 1066。EpgTimerSrv は 203(未対応)を返した。pytest の偽のソケットも同じ定数を使っていたので気づけなかった。直した。T43 のうち、スキャンと分割、分割したファイルでの選局(`GR/26`)は通っている。
+    - T30(フェーズ 3)が FAIL。BonDriver のビルドの段がキャッシュから使われ、パッチを当てたときの出力(`Applied 3 patch(es)`)がビルドのログに出なかった。テストの不備。出力が無いときは、イメージ内の `.so` に再接続のパッチ(0003)が足す文字列があるかで確かめるようにした。
+    - ほかは PASS。T40 では、分割したファイルの行を `_VM_S` / `_T` の BonDriver で選局し、偽サーバに `BS/BS01_0`、`CS/CS2`、`GR/26` のストリームが要求された。T46 は実データ(この環境の ChSet4 / ChSet5 のコピー)で、ファイルは変わらなかった。T47 は本物の `EpgDataCap_Bon` が 5 チャンネルすべてを選局し、サービスが見つからないのでファイルを変えずに警告した(起動まで 13 秒、`ChChgTimeOut=2`)。
+  - 2 回目: 修正後に依頼中。
 
 ### 受け入れ条件の状況
 
