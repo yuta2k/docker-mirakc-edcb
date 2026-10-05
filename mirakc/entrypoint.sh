@@ -38,6 +38,12 @@ elif is_mounted "$SOCKET" || is_mounted "$SOCKET_DIR"; then
   fi
 else
   log "starting the bundled pcscd (pcsc-lite $(pcscd_version))"
+  # compose.yml passes no devices: the card reader comes from compose.override.yml
+  if [ ! -d /dev/bus/usb ]; then
+    log "WARNING: /dev/bus/usb is not available, so the bundled pcscd sees no USB card reader" \
+      "and decoding (decode=1) fails. Add /dev/bus/usb:/dev/bus/usb to the devices of mirakc" \
+      "in compose.override.yml, mount the host's /run/pcscd/pcscd.comm, or set DISABLE_PCSCD=1."
+  fi
   # left over from an earlier run: pcscd refuses to start if the old PID is in use
   rm -f "$SOCKET" "$SOCKET_DIR/pcscd.pid"
   # Debian's pcscd is built with polkit, and without polkitd/D-Bus in the container

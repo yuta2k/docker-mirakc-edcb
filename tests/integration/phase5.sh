@@ -50,8 +50,10 @@ else
   docker logs "$C51" 2>&1 | head -n 8
   n=$(npcscd "$C51"); m=$(nmirakc "$C51")
   echo "pcscd: $n, mirakc: $m"
-  if [ "$n" = 1 ] && [ "$m" = 1 ] && docker logs "$C51" 2>&1 | grep -q "starting the bundled pcscd (pcsc-lite [0-9]"; then
-    result T51 "PASS pcscd and mirakc run; the log names the bundled pcscd and its version"
+  # no devices are passed here: the entrypoint warns that no card reader can be seen
+  if [ "$n" = 1 ] && [ "$m" = 1 ] && docker logs "$C51" 2>&1 | grep -q "starting the bundled pcscd (pcsc-lite [0-9]" &&
+    docker logs "$C51" 2>&1 | grep -q "WARNING: /dev/bus/usb is not available"; then
+    result T51 "PASS pcscd and mirakc run; the log names the bundled pcscd and its version, and warns about the missing USB devices"
   else
     result T51 "FAIL pcscd=$n mirakc=$m"
   fi
