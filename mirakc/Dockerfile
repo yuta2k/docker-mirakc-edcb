@@ -1,5 +1,11 @@
-ARG ARCH=
-FROM ${ARCH}mirakc/mirakc:debian
+# mirakc is pinned to a release tag and the digest of its multi-platform image.
+# These defaults are the only place where the version is pinned; the weekly
+# upstream-check workflow opens a PR when a newer release exists.
+# The image is Debian sid based: the packages installed below still come from
+# sid at build time.
+ARG MIRAKC_VERSION=3.4.88
+ARG MIRAKC_DIGEST=sha256:cc30c3ac74ddc15c115c13cc1a6724c3788ebe35a41a89a595ad7f2116f43ef2
+FROM mirakc/mirakc:${MIRAKC_VERSION}-debian@${MIRAKC_DIGEST}
 
 # libaribb25 is pinned to a commit; the build fails if the fetched source is not at that commit
 ARG LIBARIBB25_REPO=https://github.com/tsukumijima/libaribb25.git
