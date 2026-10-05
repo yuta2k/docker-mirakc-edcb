@@ -90,11 +90,14 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - 標準出力には、1 秒ごとに `\r` で始まる状態行(`Sig:… D:… S:… sp:… ch:… ChScan`)を改行なしで書き、チャンネルが進むたびに `"<チャンネル名>" <n>/<全数> remain <秒> sec` を改行付きで書く。終わると `Completed`。
 - ChSet4 / ChSet5 の書き込みは、`.tmp` に書いてから rename する(`Common/ParseText.h`)。新しく作るファイルは UTF-8(BOM 付き)、改行は LF。既存のファイルは、BOM の有無(UTF-8 か CP932 か)を保つ。`ChSet5.txt` は、行の追加が無ければ読んだ順を保ち、追加があれば ONID / TSID / SID の順に並べ直す。
 - ChSet5 の列: サービス名、ネットワーク名、ONID、TSID、SID、サービス種別、部分受信、EPG 取得対象、検索対象(`CParseChText5::ParseLine`)。
+- **選局に失敗したチャンネルは飛ばされる**(`BonCtrl.cpp` の `CheckChScan`。`ProcessSetCh` が失敗すると、次の周期で次のチャンネルへ進む)。EDCB の `SetChannel` は失敗すると 0.5 秒後に 1 回だけ再試行する(U10)。BonDriver_LinuxMirakc は、ストリームの要求が 200 以外で終わると `Tuner unavailable (rc:…, resp:…)` を出す。**mirakc は空いているチューナーが無いとき 404 を返す**(`mirakc-core/src/web/error.rs` の `TunerUnavailable`)。実機確認で、録画や EPG 取得と重なったスキャンにこの行が続けて出た(予約の無いときに再実行すると出なかった)。
+- 初回の起動のあとは EPG が無い。EDCB は `EpgTimerSrv.ini [EPG_CAP]` が無いと、毎日 23:00 に EPG を取得する(`EpgTimerSrvSetting.cpp`)。制御コマンド `CMD2_EPG_SRV_EPG_CAP_NOW`(1053)で、すぐ取得させられる(約 10 秒後に開始。EPG データの読み込み中は 208 = `CMD_ERR_BUSY`、取得中か、`GetEpg` が有効なチューナーが無いときは失敗を返す)。
 
 ### F17. EpgTimerSrv の制御コマンド(フェーズ 4 で確認)
 
 - Linux では、`/var/local/edcb/EpgTimerSrvPipe` の UNIX ソケットで受ける(`Common/SendCtrlCmd.cpp`、`PipeServer.cpp`)。要求は「コマンド番号、データの長さ(どちらも 32 ビット、リトルエンディアン)、データ」、応答は「結果(1 が成功)、長さ、データ」。認証は無い(ソケットのファイルの権限だけ)。
 - 値の形(`Common/CtrlCmdUtil.cpp`): 整数はリトルエンディアン。文字列は「長さ(長さの欄を含むバイト数)+ UTF-16LE + NUL」。構造体は先頭に自分の長さ、配列は「長さ、要素数」を持つので、読まない欄は長さで読み飛ばせる。`SYSTEMTIME` は 16 ビット × 8(年、月、曜日、日、時、分、秒、ミリ秒。EpgTimerSrv の地方時)。
+- EDCB は `[BonDriver_*.so]` の `Priority` が小さい BonDriver から予約に割り当てる。プロビジョニングが Priority を振る順は、フェーズ 4 で地上波専用・衛星専用を先、両対応を後にした(`design.md` の 7.3)。
 - `CMD2_EPG_SRV_ENUM_TUNER_PROCESS` は、待機中でないチューナーだけを返す。`tunerID` は `Priority << 16 | 連番`。`REC_SETTING_DATA.recMode` は 5 以上(`recMode / 5 % 2 != 0`)が無効の予約。
 - `ReloadSetting` は ChSet5 と ini を読み直すが、チューナーの一覧と ChSet4 は読み直さない(U11)。
 
@@ -180,6 +183,6 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 | ~~U9~~ | ~~Mirakurun の `/api/channels` と `/api/tuners` が、BonDriver と自動設定の前提どおりの形か~~ | 3 | **確認済み: 前提どおり**(`Chinachu/Mirakurun` の `563a9e7`、2026-09-27)。`api.d.ts` の `Channel` は `type`(`GR` / `BS` / `CS` / `SKY`)と `channel`(文字列)、`TunerDevice` は `types`(同じ 4 種の配列)を持つ。`/api/channels` は設定ファイルの並び順のまま返し、`isDisabled` のチャンネルと不正な定義は除く(`src/Mirakurun/Channel.ts` の `_load`)。`/api/status` もある |
 | ~~U10~~ | ~~切断時に EDCB 側が再選局するか~~ | 3 | **確認済み: しない**(`work-plus-s-260904`)。`BonCtrl/BonDriverUtil.cpp` は `GetTsStream` が空なら何もせず次の周期を待つだけ。`SetChannel` の失敗時に 0.5 秒後に 1 回だけ再試行するが、受信が止まったことを理由に選局し直す処理は無い。`TunerBankCtrl.cpp` も、録画中にチャンネルを送り直すのは予約の切り替え時だけ。BonDriver 側は `RecvThread` が切断で終わり、次の `SetChannel` まで受信しない(F4)。つまり録画中に接続が切れると、その録画は終わりまで空になる |
 | ~~U11~~ | ~~コマンドラインから `ReloadSetting` を呼ぶ手段~~ | 4 | **確認済み: 手段はあるが、チャンネル定義の反映には足りない**(F17)。制御コマンド `CMD2_EPG_SRV_RELOAD_SETTING`(3)と Lua の `edcb.ReloadSetting` があり、どちらも `CEpgTimerSrvMain::ReloadSetting(false)` を呼ぶ。これは `ChSet5.txt` を読み直すが、BonDriver の一覧と各 BonDriver の ChSet4 は起動時の `CReserveManager::Initialize` でしか読まない。`edcbctl chscan` のあとは再起動が要る |
-| U12 | スキャンにかかる時間 | 4 | 実機確認をユーザに依頼。上限は EDCB の待ち時間(1 チャンネルあたり `ChChgTimeOut` + `ServiceChkTimeOut` = 既定 17 秒、F4) |
+| ~~U12~~ | ~~スキャンにかかる時間~~ | 4 | **確認済み**(フェーズ 4 の実機確認、2026-10-05)。mirakc の 49 チャンネル(GR 11、BS 26、CS 12)で 388 秒、167 サービス。1 チャンネルあたり約 8 秒。上限は EDCB の待ち時間(1 チャンネルあたり `ChChgTimeOut` + `ServiceChkTimeOut` = 既定 17 秒、F4) |
 | ~~U13~~ | ~~録画中か・直近の予約を取得する手段~~ | 4 | **確認済み**(F17)。EpgTimerSrv の制御用 UNIX ソケット `/var/local/edcb/EpgTimerSrvPipe` に、`CMD2_EPG_SRV_ENUM_TUNER_PROCESS`(1066。録画中かは `recFlag`)と `CMD2_EPG_SRV_ENUM_RESERVE`(1011。予約一覧)を送る。HTTP や ACL の設定に左右されない |
 | U14 | pcscd が polkit 有効でビルドされている場合の、root / 非 root クライアントの扱い | 5 | **一部確認**(フェーズ 2 の実機確認、2026-10-05)。mirakc イメージの pcscd(Debian sid の 2.3.3-1、`polkitd` に依存)は、polkit と D-Bus の無いコンテナでは root のクライアント(`arib-b25-stream-test`)も拒み、`B_CAS_CARD::init() : code=-3` で復号できない。mirakc は `decode=1` のストリームに 404 を返し、BonDriver(`DECODE_B25=1`)は受信できない。`pcscd --disable-polkit` で復号できた。同じ版の pcscd を持つ 10/4 22:00 のイメージで視聴できていた理由は未確認。非 root のクライアントの扱いと `auth.c` はフェーズ 5 で読む |
