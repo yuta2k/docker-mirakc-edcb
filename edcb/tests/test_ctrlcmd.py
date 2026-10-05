@@ -52,12 +52,18 @@ def vector(items):
     return u32(8 + len(body)) + u32(len(items)) + body
 
 
-def rec_setting(rec_mode):
-    # recMode, priority, tuijyuuFlag, serviceMode, pittariFlag, batFilePath, ... (only recMode is read)
-    return sized(u8(rec_mode) + u8(2) + u8(1) + u32(0) + u8(0) + wstring("") + vector([]) + u8(0) + u8(0))
+def rec_setting(rec_mode, tuner_id=0):
+    # recMode, priority, tuijyuuFlag, serviceMode, pittariFlag, batFilePath, recFolderList,
+    # suspendMode, rebootFlag, useMargineFlag, startMargine, endMargine, continueRecFlag,
+    # partialRecFlag, tunerID, partialRecFolder (ver >= 2)
+    folder = sized(wstring("/rec") + wstring("Write_Default.so") + wstring("RecName_Macro.so"))
+    return sized(
+        u8(rec_mode) + u8(2) + u8(1) + u32(0) + u8(0) + wstring("") + vector([folder])
+        + u8(0) + u8(0) + u8(0) + i32(0) + i32(0) + u8(0) + u8(0) + u32(tuner_id) + vector([])
+    )
 
 
-def reserve(reserve_id, title, start, minutes, station="Station", rec_mode=1, ver=5):
+def reserve(reserve_id, title, start, minutes, station="Station", rec_mode=1, ver=5, tuner_id=0):
     body = (
         wstring(title)
         + systemtime(start)
@@ -73,7 +79,7 @@ def reserve(reserve_id, title, start, minutes, station="Station", rec_mode=1, ve
         + u8(0)
         + wstring("")
         + systemtime(start)
-        + rec_setting(rec_mode)
+        + rec_setting(rec_mode, tuner_id)
         + u32(0)
     )
     if ver >= 5:

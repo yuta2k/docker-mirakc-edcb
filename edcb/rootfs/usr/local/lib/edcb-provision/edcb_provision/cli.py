@@ -7,7 +7,7 @@ import argparse
 import os
 import sys
 
-from . import backends, channels, ctrlcmd, fsutil, legacy, provision
+from . import backends, channels, ctrlcmd, fsutil, legacy, provision, prune
 
 
 def _cmd_provision(args, env):
@@ -83,6 +83,18 @@ def _cmd_chscan(args, env):
     return rc
 
 
+def _cmd_prune(args, env):
+    paths = provision.Paths.from_env(env)
+    r = provision.Reporter()
+    rc, changed = prune.command(env, paths, diff=args.diff, log=r.log, warn=r.warn, out=sys.stdout)
+    if rc == 0 and changed:
+        # EpgTimerSrv reads the tuner list and the ChSet4 files only when it starts (facts.md U11)
+        print("Restart the container to have EDCB drop the removed BonDrivers: docker compose restart edcb")
+        if _print_status(paths.root, sys.stdout):
+            print("WARNING: a restart now stops the recording in progress", file=sys.stderr)
+    return rc
+
+
 def _cmd_epgcap(args, env):
     """Used by the entrypoint after a scan: one EPG capture once EpgTimerSrv is ready."""
     root = provision.Paths.from_env(env).root
@@ -131,6 +143,10 @@ def main(argv=None, env=None):
 
     p = sub.add_parser("status", help="show whether EDCB is recording and the next reservation")
     p.set_defaults(func=_cmd_status)
+
+    p = sub.add_parser("prune", help="remove what removed backends and kinds without tuners left behind")
+    p.add_argument("--diff", action="store_true", help="only show what would be removed")
+    p.set_defaults(func=_cmd_prune)
 
     # used by the entrypoint after a channel scan
     p = sub.add_parser("epgcap-pending")

@@ -4,7 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 
-from . import apply, backends, channels, config, fsutil, httppublic, initfiles
+from . import apply, backends, channels, config, fsutil, httppublic, initfiles, prune
 from .state import State
 
 
@@ -92,6 +92,14 @@ def setup_channels(env, paths, found, infos, state, backup, owner, *, diff, r):
         return 0
 
 
+def report_leftovers(paths, found, infos, state, *, r):
+    """Warn about leftovers of removed backends; never removes them (edcbctl prune does)."""
+    try:
+        prune.report_at_start(prune.find(paths.root, state, found, infos), warn=r.warn)
+    except Exception as e:  # noqa: BLE001 - like setup_backends
+        r.warn(f"cannot look for leftovers of removed backends: {type(e).__name__}: {e}")
+
+
 def run(env, paths, *, diff=False, boot=False, reporter=None, fetch=None):
     r = reporter or Reporter()
     owner = fsutil.Owner.from_env(env)
@@ -122,6 +130,7 @@ def run(env, paths, *, diff=False, boot=False, reporter=None, fetch=None):
     found, infos, entries, changes = setup_backends(env, paths, owner, diff=diff, r=r, fetch=fetch)
     count += changes
     count += setup_channels(env, paths, found, infos, state, backup, owner, diff=diff, r=r)
+    report_leftovers(paths, found, infos, state, r=r)
 
     plan = config.collect(env, paths.root, paths.overrides, boot=boot, extra=entries)
     results = apply.compute(plan, paths.root)

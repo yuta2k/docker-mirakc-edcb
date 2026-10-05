@@ -196,6 +196,16 @@ class IniFile:
             self._index()
         return bool(found)
 
+    def delete_section(self, section):
+        """Delete every block of a section, with the lines up to the next header. Return True if the file changed."""
+        norm = _norm(section)
+        keep = [line for i, line in enumerate(self._lines) if self._owner[i] != norm]
+        if len(keep) == len(self._lines):
+            return False
+        self._lines = keep
+        self._index()
+        return True
+
     def _insert(self, section, key, value):
         norm = _norm(section)
         header = None

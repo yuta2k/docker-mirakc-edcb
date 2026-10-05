@@ -148,7 +148,23 @@ def _reserve(r):
     s.u8()  # overlapMode
     s.wstring()  # unused
     s.systemtime()  # startTimeEpg
-    rec_mode = s.struct().u8()
+    rs = s.struct()  # REC_SETTING_DATA
+    rec_mode = rs.u8()
+    rs.u8()  # priority
+    rs.u8()  # tuijyuuFlag
+    rs.u32()  # serviceMode
+    rs.u8()  # pittariFlag
+    rs.wstring()  # batFilePath
+    rs.vector(Reader.struct)  # recFolderList
+    rs.u8()  # suspendMode
+    rs.u8()  # rebootFlag
+    rs.u8()  # useMargineFlag
+    rs.i32()  # startMargine
+    rs.i32()  # endMargine
+    rs.u8()  # continueRecFlag
+    rs.u8()  # partialRecFlag
+    # 0: any tuner; otherwise the reservation is fixed to this tuner
+    tuner_id = rs.u32()
     return {
         "id": reserve_id,
         "title": title,
@@ -158,6 +174,7 @@ def _reserve(r):
         "service": (onid, tsid, sid),
         "event": eid,
         "enabled": rec_mode // DIV_RECMODE % 2 == 0,
+        "tuner_id": tuner_id,
     }
 
 
