@@ -45,6 +45,13 @@ KILL_GRACE = 10
 
 CHSCAN_MODES = ("first", "never")
 
+# BonDriver_LinuxMirakc's message when the backend has no free tuner for a
+# channel (mirakc answers 404, Mirakurun 503); EDCB's scan then skips the channel
+TUNER_REFUSED = "Tuner unavailable"
+# EDCB asks for EPG capture after a start that follows a scan (EpgTimerSrv
+# reads new channel files only when it starts, facts.md U11)
+EPGCAP_PENDING_REL = os.path.join(fsutil.STATE_DIR, "epgcap-pending")
+
 # the status line EpgDataCap_Bon rewrites every second with "\r"
 _STATUS_RE = re.compile(r"Sig:\S+ D:\d+ S:\d+ (sp:-?\d+ ch:-?\d+ )?((Rec|ChScan|EpgCap) )*\s*")
 
@@ -133,7 +140,10 @@ class Scanner:
         self.warn = warn
 
     def _run(self, argv, timeout, prefix):
-        """Run argv as PUID:PGID, pass its output on. Return (status, timed out)."""
+        """Run argv as PUID:PGID, pass its output on.
+
+        Return (status, timed out, number of lines that report a busy backend).
+        """
         kwargs = {}
         if self.owner.uid is not None:
             kwargs.update(user=self.owner.uid, group=self.owner.gid, extra_groups=[])
@@ -161,22 +171,29 @@ class Scanner:
         timer = threading.Timer(timeout, stop)
         timer.daemon = True
         timer.start()
+        refused = 0
         try:
             for raw in proc.stdout:
                 line = _progress(raw)
                 if line:
                     self.log(f"{prefix}{line}")
+                    if TUNER_REFUSED in line:
+                        refused += 1
             status = proc.wait()
         finally:
             timer.cancel()
             proc.stdout.close()
-        return status, timed_out.is_set()
+        return status, timed_out.is_set(), refused
 
-    def scan(self, backend, n_channels):
-        """Scan one backend. Return the scanned ChSet4 (bytes) or None.
+    def scan(self, backend, channels):
+        """Scan one backend. Return (the scanned ChSet4 or None, channels missed).
 
+        channels: /api/channels of the backend. A channel is reported as
+        missed when it has no services in the result while the backend
+        refused a tuner during the scan: EDCB skips such a channel.
         Setting/ChSet5.txt is changed by EDCB; the caller restores it.
         """
+        n_channels = len(channels)
         name = f"{backends.BONDRIVER_BASE}-scan-{backend.name}.so"
         src = os.path.join(self.lib, backend.bondriver("M"))
         so = os.path.join(self.lib, name)
@@ -186,7 +203,7 @@ class Scanner:
                 so_data = f.read()
         except OSError as e:
             self.warn(f"backend {backend.name} is not scanned: cannot read {src}: {e}")
-            return None
+            return None, []
         timeout = SCAN_BASE_TIMEOUT + SCAN_TIMEOUT_PER_CHANNEL * n_channels
         argv = [*self.command, "-d", name, "-chscan"]
         self.log(f"backend {backend.name}: scanning {n_channels} channel(s) (at most {timeout} s): {' '.join(argv)}")
@@ -195,11 +212,11 @@ class Scanner:
             backends.write_lib_file(so, so_data, 0o755)
             backends.write_lib_file(so + ".ini", backend.bondriver_ini(), 0o644)
             _remove(out)
-            status, timed_out = self._run(argv, timeout, f"chscan {backend.name}: ")
+            status, timed_out, refused = self._run(argv, timeout, f"chscan {backend.name}: ")
             data = _read(out)
         except OSError as e:
             self.warn(f"backend {backend.name}: the scan failed: {e}")
-            return None
+            return None, []
         finally:
             for path in (so, so + ".ini", out):
                 with contextlib.suppress(OSError):
@@ -207,19 +224,23 @@ class Scanner:
         elapsed = int(time.monotonic() - started)
         if timed_out:
             self.warn(f"backend {backend.name}: the scan took longer than {timeout} s and was stopped")
-            return None
+            return None, []
         if data is None:
             self.warn(f"backend {backend.name}: the scan did not finish (EpgDataCap_Bon exited with status {status})")
-            return None
+            return None, []
         rows = chset.count_rows(data)
         if rows == 0:
             self.warn(
                 f"backend {backend.name}: the scan found no services (is the backend receiving? "
                 "are tuners free?); nothing is changed"
             )
-            return None
+            return None, []
         self.log(f"backend {backend.name}: the scan found {rows} service(s) in {elapsed} s")
-        return data
+        missed = []
+        if refused:
+            found = chset.scanned_positions(data)
+            missed = [c["channel"] for space, ch, c in chset.positions(channels) if (space, ch) not in found]
+        return data, missed
 
 
 class Channels:
@@ -269,6 +290,8 @@ class Channels:
 
     def _commit(self, backend, info, data):
         fsutil.write_atomic(self._path(scan_rel(backend.name)), data, self.owner)
+        # the new services have no EPG yet; EDCB's default capture is at 23:00
+        fsutil.write_atomic(self._path(EPGCAP_PENDING_REL), b"", self.owner)
         self.records[backend.name] = {
             "url": backend.url,
             "scanned_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -276,12 +299,29 @@ class Channels:
             "spaces": chset.spaces(info.channels),
         }
 
-    def scan(self, scanner, targets, infos, *, rebuild=False):
+    def _scan_one(self, scanner, backend, infos, strict):
+        """Scan a backend; return the ChSet4 or None (a failure, already reported)."""
+        data, missed = scanner.scan(backend, infos[backend.name].channels)
+        if data is None or not missed:
+            return data
+        what = (
+            f"backend {backend.name}: the backend had no free tuner during the scan, and "
+            f"{len(missed)} channel(s) have no services: {', '.join(missed)}"
+        )
+        if strict:
+            self.warn(f"{what}; the result is not used. Try again when no recording or EPG capture runs (edcbctl status)")
+            return None
+        self.warn(f"{what}; the result is used, but may be incomplete. Scan again later: edcbctl chscan {backend.name}")
+        return data
+
+    def scan(self, scanner, targets, infos, *, rebuild=False, strict=False):
         """Scan the targets. Return the names scanned successfully.
 
         Without rebuild, every backend stands alone: a failed scan leaves
         ChSet5 as it was before it. With rebuild, ChSet5 is backed up and
         removed first, and put back when any scan fails.
+        strict: a scan that missed channels for want of a free tuner fails
+        (it would replace a complete scan); otherwise it is used with a warning.
         """
         path = self._path(CHSET5_REL)
         done = []
@@ -293,7 +333,7 @@ class Channels:
                 _remove(path)
             results = {}
             for b in targets:
-                data = scanner.scan(b, len(infos[b.name].channels))
+                data = self._scan_one(scanner, b, infos, strict)
                 if data is None:
                     self.warn(f"rebuild stopped: the scan of backend {b.name} failed; {CHSET5_REL} is restored")
                     self._put_chset5(before)
@@ -308,7 +348,7 @@ class Channels:
             before = _read(path)
             if before is not None:
                 self._backup_chset5()
-            data = scanner.scan(b, len(infos[b.name].channels))
+            data = self._scan_one(scanner, b, infos, strict)
             if data is None:
                 if _read(path) != before:
                     self._put_chset5(before)
@@ -511,7 +551,7 @@ def command(env, paths, names, *, all_backends=False, rebuild=False, force=False
             return 1
         ch = Channels(paths.root, state, backup, owner, log=log, warn=warn)
         scanner = Scanner(paths.root, paths.lib, owner, scan_command(env), log=log, warn=warn)
-        done = ch.scan(scanner, targets, live, rebuild=rebuild)
+        done = ch.scan(scanner, targets, live, rebuild=rebuild, strict=True)
         for b in targets:
             if b.name not in done:
                 continue

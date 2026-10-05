@@ -145,3 +145,14 @@ def test_split_real_data():
     assert sorted(t_rows + s_rows) == sorted(
         line for line in lines if space_types[int(line.split(b"\t")[3])] in ("GR", "BS", "CS")
     )
+
+
+def test_positions_and_scanned_positions():
+    channels = [ch("GR", "27"), ch("GR", "26"), ch("BS", "BS01_0"), ch("GR", "20")]
+    assert [(s, c, x["channel"]) for s, c, x in chset.positions(channels)] == [
+        (0, 0, "27"),
+        (0, 1, "26"),
+        (1, 0, "BS01_0"),
+        (2, 0, "20"),
+    ]
+    assert chset.scanned_positions(chset4(row("a", 0, 1), row("b", 0, 1, sid=4), row("c", 2, 0))) == {(0, 1), (2, 0)}

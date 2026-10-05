@@ -270,11 +270,12 @@ def test_two_backends_make_six_bondrivers_with_their_own_ini(tree, fake):
 
     srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
     # dual: 2 x M; split: 3 x T and 2 x S. Kinds without tuners get no section.
-    assert srv.keys("BonDriver_LinuxMirakc.so") == [("Count", "2"), ("GetEpg", "1"), ("EPGCount", "0"), ("Priority", "0")]
+    # Single-band BonDrivers come first, also across backends.
+    assert srv.keys("BonDriver_LinuxMirakc.so") == [("Count", "2"), ("GetEpg", "1"), ("EPGCount", "0"), ("Priority", "2")]
     assert srv.get("BonDriver_LinuxMirakc_VM_T.so", "Count") == "3"
-    assert srv.get("BonDriver_LinuxMirakc_VM_T.so", "Priority") == "1"
+    assert srv.get("BonDriver_LinuxMirakc_VM_T.so", "Priority") == "0"
     assert srv.get("BonDriver_LinuxMirakc_VM_S.so", "Count") == "2"
-    assert srv.get("BonDriver_LinuxMirakc_VM_S.so", "Priority") == "2"
+    assert srv.get("BonDriver_LinuxMirakc_VM_S.so", "Priority") == "1"
     for empty in ["BonDriver_LinuxMirakc_T.so", "BonDriver_LinuxMirakc_S.so", "BonDriver_LinuxMirakc_VM.so"]:
         assert not srv.has_section(empty)
     assert "provision: backend VM: http://127.0.0.1:%d (reachable), tuners M=0 T=3 S=2" % b.port in r.lines
@@ -524,3 +525,12 @@ def test_a_failed_update_is_retried_on_the_next_start(tree, fake, monkeypatch):
     assert not any("not created by the provisioning" in w for w in r.warning_lines)
     conf = read_ini(os.path.join(tree.lib, "BonDriver_LinuxMirakc.so.ini"))
     assert conf.get("GLOBAL", "SERVER_PORT") == str(b.port)
+
+
+def test_single_band_bondrivers_are_used_before_dual_ones(tree, fake):
+    # mixed: M=2, T=1, S=2. EDCB uses the smallest Priority first; a satellite
+    # recording on a dual tuner would leave one terrestrial recording without one
+    run(tree, {"EDCB_BACKEND_DEFAULT_URL": fake("mixed").url}, boot=True)
+    srv = read_ini(os.path.join(tree.root, "EpgTimerSrv.ini"))
+    priorities = {n: srv.get(n, "Priority") for n in ("BonDriver_LinuxMirakc_T.so", "BonDriver_LinuxMirakc_S.so", "BonDriver_LinuxMirakc.so")}
+    assert priorities == {"BonDriver_LinuxMirakc_T.so": "0", "BonDriver_LinuxMirakc_S.so": "1", "BonDriver_LinuxMirakc.so": "2"}

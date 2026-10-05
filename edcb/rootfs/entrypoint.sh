@@ -151,6 +151,12 @@ PGID_SRV=$SRV_PID
 # a stop signal that arrived while starting
 if [ -n "$stopping" ]; then terminate_edcb; fi
 
+# === after a channel scan: one EPG capture as soon as EpgTimerSrv is ready ===
+# (otherwise the new channels get EPG only at EDCB's capture time, 23:00 by default)
+if [ -z "$stopping" ] && [ -e "$EDCB_ROOT/.provision/epgcap-pending" ]; then
+  edcbctl epgcap-pending &
+fi
+
 # wait for terminate_edcb() or an unexpected exit of EpgTimerSrv
 wait "$SRV_PID"
 status=$?

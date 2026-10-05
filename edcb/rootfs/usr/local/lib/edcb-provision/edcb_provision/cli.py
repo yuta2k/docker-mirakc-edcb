@@ -77,9 +77,26 @@ def _cmd_chscan(args, env):
         # EpgTimerSrv reads the ChSet4 files and its tuner list only when it
         # starts; ReloadSetting rereads ChSet5 alone (facts.md U11)
         print(RESTART_HINT)
+        print("EPG of the scanned channels is captured right after the restart.")
         if _print_status(paths.root, sys.stdout):
             print("WARNING: a restart now stops the recording in progress", file=sys.stderr)
     return rc
+
+
+def _cmd_epgcap(args, env):
+    """Used by the entrypoint after a scan: one EPG capture once EpgTimerSrv is ready."""
+    root = provision.Paths.from_env(env).root
+    marker = os.path.join(root, channels.EPGCAP_PENDING_REL)
+    if not os.path.exists(marker):
+        return 0
+    r = provision.Reporter()
+    if not ctrlcmd.request_epg_capture(root, log=r.log):
+        return 1
+    try:
+        os.remove(marker)
+    except FileNotFoundError:
+        pass
+    return 0
 
 
 def _cmd_status(args, env):
@@ -114,6 +131,10 @@ def main(argv=None, env=None):
 
     p = sub.add_parser("status", help="show whether EDCB is recording and the next reservation")
     p.set_defaults(func=_cmd_status)
+
+    # used by the entrypoint after a channel scan
+    p = sub.add_parser("epgcap-pending")
+    p.set_defaults(func=_cmd_epgcap)
 
     args = parser.parse_args(argv)
     return args.func(args, env)

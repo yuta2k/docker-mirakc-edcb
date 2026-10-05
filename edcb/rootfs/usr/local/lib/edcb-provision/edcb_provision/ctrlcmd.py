@@ -16,6 +16,7 @@ import datetime
 import os
 import socket
 import struct
+import time
 
 from . import ini
 from .config import SRV_INI
@@ -24,6 +25,9 @@ SOCKET_NAME = "EpgTimerSrvPipe"
 CMD_SUCCESS = 1
 CMD2_EPG_SRV_ENUM_RESERVE = 1011
 CMD2_EPG_SRV_ENUM_TUNER_PROCESS = 1066
+CMD2_EPG_SRV_EPG_CAP_NOW = 1053
+# Common/ErrDef.h: busy (still loading the EPG data, ...)
+CMD_ERR_BUSY = 208
 TIMEOUT = 5
 
 # REC_SETTING_DATA.recMode: 0-4 record; IsNoRec() is recMode / 5 % 2 != 0
@@ -31,7 +35,9 @@ DIV_RECMODE = 5
 
 
 class CtrlCmdError(Exception):
-    pass
+    def __init__(self, message, result=None):
+        super().__init__(message)
+        self.result = result
 
 
 def call(root, cmd, data=b"", timeout=TIMEOUT):
@@ -45,7 +51,7 @@ def call(root, cmd, data=b"", timeout=TIMEOUT):
         result, size = struct.unpack("<II", head)
         body = _recv(s, size)
     if result != CMD_SUCCESS:
-        raise CtrlCmdError(f"command {cmd} failed with {result}")
+        raise CtrlCmdError(f"command {cmd} failed with {result}", result)
     return body
 
 
@@ -183,6 +189,30 @@ def reserves(root):
 def tuner_processes(root):
     """The tuners that are not idle (ReserveManager.cpp GetTunerProcessStatusAll)."""
     return Reader(call(root, CMD2_EPG_SRV_ENUM_TUNER_PROCESS)).vector(_tuner_process)
+
+
+def request_epg_capture(root, *, wait=600, interval=5, log):
+    """Ask EpgTimerSrv to capture EPG now, waiting until it is ready.
+
+    Return True once EpgTimerSrv answered (started, or declined because it
+    already captures or has no tuner for it), False if it never answered.
+    """
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            call(root, CMD2_EPG_SRV_EPG_CAP_NOW)
+            log("EPG capture requested (EpgTimerSrv starts it in about 10 s)")
+            return True
+        except CtrlCmdError as e:
+            if e.result != CMD_ERR_BUSY:
+                log(f"EpgTimerSrv did not start an EPG capture ({e}); it may run one already")
+                return True
+        except OSError:
+            pass  # not listening yet
+        if time.monotonic() >= deadline:
+            log(f"EpgTimerSrv did not accept an EPG capture within {wait} s")
+            return False
+        time.sleep(interval)
 
 
 # ----- edcbctl status -----

@@ -86,6 +86,32 @@ def spaces(channels):
     return result
 
 
+def positions(channels):
+    """[(space, ch, channel)] of /api/channels, numbered like the BonDriver."""
+    result = []
+    space = -1
+    previous = None
+    ch = 0
+    for c in channels:
+        if c["type"] != previous:
+            space += 1
+            ch = 0
+            previous = c["type"]
+        result.append((space, ch, c))
+        ch += 1
+    return result
+
+
+def scanned_positions(data):
+    """{(space, ch)} that have at least one row in a ChSet4."""
+    found = set()
+    for line in split_lines(data)[1]:
+        f = _fields(line)
+        if len(f) > C4_SPACE + 1:
+            found.add((_int(f[C4_SPACE]), _int(f[C4_SPACE + 1])))
+    return found
+
+
 def channels_hash(channels):
     """Hash of the type and channel order of /api/channels (design.md 8.1)."""
     data = json.dumps([[c["type"], c["channel"]] for c in channels], separators=(",", ":"))

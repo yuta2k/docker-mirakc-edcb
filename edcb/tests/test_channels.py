@@ -471,3 +471,50 @@ def test_backends_report_shows_the_scan(tree, fake, scan_env):
     out = io.StringIO()
     backends.report(env, tree.root, out=out)
     assert "CHANGED: the channel list of the backend changed" in out.getvalue()
+
+
+# ----- channels skipped for want of a free tuner -----
+
+
+def test_first_start_uses_a_scan_with_skipped_channels(tree, fake, scan_env, monkeypatch):
+    monkeypatch.setenv("FAKE_CHSCAN", "busy")
+    env = {**scan_env, "EDCB_BACKEND_DEFAULT_URL": fake("dual").url}
+    r = boot(tree, env)
+    # dual: GR27, GR26, ... GR26 (space 0, ch 1) was skipped
+    assert any("no free tuner" in w and "1 channel(s) have no services: 26" in w and "edcbctl chscan DEFAULT" in w for w in r.warning_lines)
+    assert spaces_of(tree, "Setting/BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt") == [0, 1, 1, 2]
+
+
+def test_chscan_does_not_use_a_scan_with_skipped_channels(tree, fake, scan_env, monkeypatch):
+    env = {**scan_env, "EDCB_BACKEND_DEFAULT_URL": fake("dual").url}
+    boot(tree, env)
+    before = snapshot(tree)
+    monkeypatch.setenv("FAKE_CHSCAN", "busy")
+    rc, r = chscan(tree, env, ["DEFAULT"])
+    assert rc == 1
+    assert any("the result is not used" in w for w in r.warning_lines)
+    assert snapshot(tree) == before
+
+
+def test_refused_tuner_that_the_retry_got_is_not_reported(tree, fake, scan_env, monkeypatch):
+    # EDCB retries SetChannel once; when that works, every channel has services
+    monkeypatch.setenv("FAKE_CHSCAN", "retried")
+    env = {**scan_env, "EDCB_BACKEND_DEFAULT_URL": fake("dual").url}
+    r = boot(tree, env)
+    assert any("Tuner unavailable" in line for line in r.lines)
+    assert not any("no free tuner" in w for w in r.warning_lines)
+    assert spaces_of(tree, "Setting/BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt") == [0, 0, 1, 1, 2]
+
+
+# ----- EPG capture after a scan -----
+
+
+def test_scan_requests_an_epg_capture_after_the_next_start(tree, fake, scan_env):
+    env = {**scan_env, "EDCB_BACKEND_DEFAULT_URL": fake("dual").url}
+    boot(tree, env)
+    assert exists(tree, channels.EPGCAP_PENDING_REL)
+    os.remove(os.path.join(tree.root, channels.EPGCAP_PENDING_REL))
+    boot(tree, env)  # no scan: nothing to capture
+    assert not exists(tree, channels.EPGCAP_PENDING_REL)
+    assert chscan(tree, env, ["DEFAULT"])[0] == 0
+    assert exists(tree, channels.EPGCAP_PENDING_REL)

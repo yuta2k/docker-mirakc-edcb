@@ -386,6 +386,11 @@ def tuner_entries(root, backends, infos, *, warn):
     A section that does not exist gets Count, GetEpg, EPGCount and Priority.
     An existing one is left alone; with TUNERS=auto, a different Count is
     only reported. With an explicit TUNERS, Count is written on every start.
+
+    New sections are numbered after the existing ones, the terrestrial-only
+    and satellite-only BonDrivers before the dual ones: EDCB uses the
+    smallest Priority first, and a dual tuner taken by a recording that a
+    single-band one could have done is missing for the other band later.
     """
     path = os.path.join(root, SRV_INI)
     try:
@@ -403,6 +408,7 @@ def tuner_entries(root, backends, infos, *, warn):
     next_priority = max(priorities) + 1 if priorities else 0
 
     entries = []
+    new_sections = []  # (order, section, source) of the sections to number
     for b in backends:
         counts, explicit = tuner_counts(b, infos[b.name])
         if counts is None:
@@ -432,8 +438,9 @@ def tuner_entries(root, backends, infos, *, warn):
                     entries.append(Entry(SRV_INI, section, "Count", str(n), False, source))
                 entries.append(Entry(SRV_INI, section, "GetEpg", "1", False, source))
                 entries.append(Entry(SRV_INI, section, "EPGCount", "0", False, source))
-                entries.append(Entry(SRV_INI, section, "Priority", str(next_priority), False, source))
-                next_priority += 1
+                new_sections.append((kind == "M", len(new_sections), section, source))
+    for i, (_, _, section, source) in enumerate(sorted(new_sections)):
+        entries.append(Entry(SRV_INI, section, "Priority", str(next_priority + i), False, source))
     return entries
 
 

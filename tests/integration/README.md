@@ -52,7 +52,7 @@ Compose のプロジェクトは使わない。稼働中のコンテナや `edcb
 - `lib.sh` — 共通の関数(`result`、`section`、`run`、`wait_log`、`wait_health` など)
 - `phase2.sh` — フェーズ 2 の確認(T0〜T15)。内容は `docs/v2/phases/2-provision.md` の「検証結果」
 - `phase3.sh` — フェーズ 3 の確認(T30〜T39)。偽の Mirakurun(`edcb/tests/fake_mirakurun.py`)を、テストするイメージの python3 でテスト用ネットワークに立て、ホスト名でつなぐ。T35 は到達できない接続先として `192.0.2.1`(文書用のアドレス)を使う
-- `phase4.sh` — フェーズ 4 の確認(T40〜T48)。`phase3.sh` のネットワークと `fake` を使う。偽の Mirakurun は空のパケットしか送らず、本物の `EpgDataCap_Bon` ではサービスが見つからないので、スキャンは偽の `EpgDataCap_Bon`(`edcb/tests/fake_epgdatacap.py`。環境変数 `EDCB_PROVISION_EPGDATACAP` で差し替える)で行う。T47 だけ本物の `EpgDataCap_Bon` で、全チャンネルを選局すること、何も見つからないときにファイルを変えないことを確かめる。T46 は `EDCBTEST_REAL_INI` の `Setting/` に ChSet4 と ChSet5 があれば、それを一時ディレクトリにコピーして使う(無ければ合成したデータ)
+- `phase4.sh` — フェーズ 4 の確認(T40〜T49)。`phase3.sh` のネットワークと `fake` を使う。偽の Mirakurun は空のパケットしか送らず、本物の `EpgDataCap_Bon` ではサービスが見つからないので、スキャンは偽の `EpgDataCap_Bon`(`edcb/tests/fake_epgdatacap.py`。環境変数 `EDCB_PROVISION_EPGDATACAP` で差し替える)で行う。T47 だけ本物の `EpgDataCap_Bon` で、全チャンネルを選局すること、何も見つからないときにファイルを変えないことを確かめる。T46 は `EDCBTEST_REAL_INI` の `Setting/` に ChSet4 と ChSet5 があれば、それを一時ディレクトリにコピーして使う(無ければ合成したデータ)
 - `fixtures/` — 確認で使うファイル
 
 ## 確認を足す

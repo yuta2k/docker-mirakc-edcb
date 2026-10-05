@@ -7,7 +7,7 @@
 # shellcheck disable=SC2154  # IMG, TMP, REPO, NET, REAL_INI etc. are set by run.sh / phase3.sh
 
 P4A=$(cname p4-a); P4B=$(cname p4-b); P4B2=$(cname p4-b2)
-C40=$(cname 40); C45=$(cname 45); C46=$(cname 46); C47=$(cname 47); C48=$(cname 48)
+C40=$(cname 40); C45=$(cname 45); C46=$(cname 46); C47=$(cname 47); C48=$(cname 48); C49=$(cname 49)
 
 # run options that make the provisioning scan with the fake EpgDataCap_Bon
 FAKESCAN=(-v "$REPO/edcb/tests:/tests:ro"
@@ -52,7 +52,12 @@ sleep 2
 # ---------------------------------------------------------------- T40 first start
 section "T40 first start without ChSet5: every backend is scanned and split by kind"
 D40=$TMP/d40; mkdir "$D40"
-run "$C40" "$D40" --network "$NET" "${FAKESCAN[@]}" \
+# No EPG capture by these tuners: the capture that follows a scan would tune
+# the fake servers and make the stream counts of tune() meaningless. EpgTimerSrv
+# then declines the request (T49 checks a capture that starts).
+O40=$TMP/o40; mkdir "$O40"
+for b in "" _T _S _VM_T _VM_S; do printf '[BonDriver_LinuxMirakc%s.so]\nGetEpg=0\n' "$b"; done > "$O40/EpgTimerSrv.ini"
+run "$C40" "$D40" --network "$NET" "${FAKESCAN[@]}" -v "$O40:/etc/edcb/overrides:ro" \
   -e EDCB_BACKEND_DEFAULT_URL=http://p4-a:40772 -e EDCB_BACKEND_VM_URL=http://p4-b:40772
 wait_log "$C40" "starting EpgTimerSrv" 120 || echo "!! no start message"
 sleep 3
@@ -83,6 +88,24 @@ done
 tune "$C40" BonDriver_LinuxMirakc_VM_S.so "$(cs4 "$D40" _VM_S)" 1 "$P4B" BS/BS01_0 || ok=0
 tune "$C40" BonDriver_LinuxMirakc_VM_S.so "$(cs4 "$D40" _VM_S)" 3 "$P4B" CS/CS2 || ok=0
 tune "$C40" BonDriver_LinuxMirakc_T.so "$(cs4 "$D40" _T)" 2 "$P4A" GR/26 || ok=0
+# single-band BonDrivers first (EDCB uses the smallest Priority first)
+grep -A4 '^\[BonDriver' "$D40/EpgTimerSrv.ini" | grep -E '^\[|^Priority'
+python3 - "$D40/EpgTimerSrv.ini" <<'EOF2' || ok=0
+import sys
+prio, section = {}, None
+for line in open(sys.argv[1], encoding="utf-8"):
+    line = line.strip()
+    if line.startswith("["):
+        section = line[1:-1]
+    elif line.startswith("Priority="):
+        prio[section] = int(line[9:])
+dual = [p for s, p in prio.items() if s in ("BonDriver_LinuxMirakc.so",)]
+single = [p for s, p in prio.items() if s.endswith(("_T.so", "_S.so"))]
+sys.exit(0 if dual and single and max(single) < min(dual) else 1)
+EOF2
+# the request for an EPG capture after the scan reached EpgTimerSrv
+docker logs "$C40" 2>&1 | grep "EPG capture" || { echo "no answer to the EPG capture request"; ok=0; }
+[ -e "$D40/.provision/epgcap-pending" ] && { echo "EPG capture still pending"; ok=0; }
 if [ $ok = 1 ]; then result T40 PASS; else result T40 FAIL; fi
 
 # ---------------------------------------------------------------- T41 second start
@@ -125,6 +148,8 @@ cat "$TMP/t43"
 [ "$(nscan "$D40")" = 3 ] || ok=0
 [ "$(tail -1 "$D40/chscan.log")" = "CHSCAN BonDriver_LinuxMirakc-scan-VM.so" ] || ok=0
 grep -q "Restart the container" "$TMP/t43" || ok=0
+grep -q "EPG of the scanned channels is captured right after the restart" "$TMP/t43" || ok=0
+[ -e "$D40/.provision/epgcap-pending" ] || { echo "no EPG capture pending after chscan"; ok=0; }
 grep -q "^recording: no" "$TMP/t43" || ok=0
 chsums "$D40" > "$TMP/s43"
 for f in "BonDriver_LinuxMirakc(" "BonDriver_LinuxMirakc_T(" "BonDriver_LinuxMirakc_S("; do
@@ -260,3 +285,25 @@ cat "$TMP/t48b"; echo "(exit $rc without EpgTimerSrv)"
 [ $rc = 1 ] || ok=0
 if [ $ok = 1 ]; then result T48 PASS; else result T48 FAIL; fi
 docker rm -f "$C48" >/dev/null
+
+# ---------------------------------------------------------------- T49 EPG capture after the scan
+section "T49 after the first scan, EpgTimerSrv starts an EPG capture without waiting for 23:00"
+D49=$TMP/d49; mkdir "$D49"
+run "$C49" "$D49" --network "$NET" "${FAKESCAN[@]}" -e EDCB_BACKEND_DEFAULT_URL=http://p4-a:40772
+wait_log "$C49" "starting EpgTimerSrv" 90 || echo "!! no start message"
+ok=1
+wait_log "$C49" "EPG capture requested" 60 || { echo "no EPG capture request"; ok=0; }
+docker logs "$C49" 2>&1 | grep "EPG capture"
+# EpgTimerSrv starts it about 10 s after the request; nothing else uses a tuner here
+n=0
+for _ in $(seq 40); do
+  n=$(docker exec "$C49" pgrep -cx EpgDataCap_Bon)
+  [ "$n" -gt 0 ] && break
+  sleep 1
+done
+echo "EpgDataCap_Bon processes: $n"
+docker exec "$C49" ps -o args= -C EpgDataCap_Bon
+[ "$n" -gt 0 ] || ok=0
+[ -e "$D49/.provision/epgcap-pending" ] && { echo "EPG capture still pending"; ok=0; }
+if [ $ok = 1 ]; then result T49 PASS; else result T49 FAIL; fi
+docker rm -f "$C49" >/dev/null

@@ -203,3 +203,60 @@ def test_failed_command_and_truncated_reply(root):
 def test_status_command_without_epgtimersrv(root, capsys):
     assert cli.main(["status"], env={"EDCB_PROVISION_ROOT": root}) == 1
     assert "cannot ask" in capsys.readouterr().out
+
+
+class BusyThenOk(FakeSrv):
+    """Answers EPG_CAP_NOW with "busy" a few times (EpgTimerSrv loading its EPG data)."""
+
+    def __init__(self, root, busy):
+        self.busy = busy
+        super().__init__(root, {})
+
+    def _serve(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            with conn:
+                cmd, _ = struct.unpack("<II", conn.recv(8))
+                self.requests.append(cmd)
+                result = ctrlcmd.CMD_ERR_BUSY if len(self.requests) <= self.busy else 1
+                conn.sendall(struct.pack("<II", result, 0))
+
+
+def test_epg_capture_waits_while_busy(root):
+    srv = BusyThenOk(root, busy=2)
+    lines = []
+    try:
+        assert ctrlcmd.request_epg_capture(root, wait=10, interval=0.01, log=lines.append) is True
+    finally:
+        srv.close()
+    assert srv.requests == [ctrlcmd.CMD2_EPG_SRV_EPG_CAP_NOW] * 3
+    assert lines == ["EPG capture requested (EpgTimerSrv starts it in about 10 s)"]
+
+
+def test_epg_capture_declined_or_not_listening(root):
+    srv = FakeSrv(root, {ctrlcmd.CMD2_EPG_SRV_EPG_CAP_NOW: (0, b"")})
+    lines = []
+    try:
+        assert ctrlcmd.request_epg_capture(root, wait=1, interval=0.01, log=lines.append) is True
+    finally:
+        srv.close()
+    assert "did not start an EPG capture" in lines[0]
+    os.remove(os.path.join(root, ctrlcmd.SOCKET_NAME))
+    assert ctrlcmd.request_epg_capture(root, wait=0.05, interval=0.01, log=lines.append) is False
+
+
+def test_epgcap_pending_command(root):
+    os.makedirs(os.path.join(root, ".provision"))
+    env = {"EDCB_PROVISION_ROOT": root}
+    assert cli.main(["epgcap-pending"], env=env) == 0  # no marker: nothing to do
+    marker = os.path.join(root, ".provision", "epgcap-pending")
+    open(marker, "w").close()
+    srv = FakeSrv(root, {ctrlcmd.CMD2_EPG_SRV_EPG_CAP_NOW: (1, b"")})
+    try:
+        assert cli.main(["epgcap-pending"], env=env) == 0
+    finally:
+        srv.close()
+    assert not os.path.exists(marker)

@@ -16,7 +16,10 @@ Environment:
     FAKE_EDCB_LIB    BonDriver folder (default /usr/local/lib/edcb)
     FAKE_CHSCAN_LOG  append one line per run: "CHSCAN <BonDriver>"
     FAKE_CHSCAN      ok (default) | empty (no services found) | fail (exit
-                     early, write nothing) | hang (never finish)
+                     early, write nothing) | hang (never finish) | busy (the
+                     second channel gets no tuner and is skipped, like EDCB
+                     does when the backend answers 404 "Tuner unavailable") |
+                     retried (the same message once, but the retry works)
 """
 
 import json
@@ -38,7 +41,7 @@ def read_ini(path):
     return conf
 
 
-def scan(conf):
+def scan(conf, skip=(), refuse_once=()):
     url = f"http://{conf['SERVER_HOST']}:{conf['SERVER_PORT']}/api/channels"
     with urllib.request.urlopen(url, timeout=5) as resp:
         channels = json.load(resp)
@@ -51,6 +54,12 @@ def scan(conf):
             space += 1
             ch = 0
             previous = c["type"]
+        if (space, ch) in refuse_once:
+            print("BonDriver_LinuxMirakc(1,1):SetChannel:443:fake: Tuner unavailable (rc:0, resp:404)", flush=True)
+        if (space, ch) in skip:
+            print("BonDriver_LinuxMirakc(1,1):SetChannel:443:fake: Tuner unavailable (rc:0, resp:404)", flush=True)
+            ch += 1
+            continue
         for s in c["services"]:
             onid = s["networkId"]
             tsid = (onid * 16 + space * 256 + ch) & 0xFFFF
@@ -108,7 +117,9 @@ def main(argv):
         while True:
             time.sleep(1)
 
-    rows = scan(read_ini(os.path.join(lib, bon + ".ini"))) if mode != "empty" else []
+    skip = {(0, 1)} if mode == "busy" else set()
+    refuse_once = {(0, 1)} if mode == "retried" else set()
+    rows = scan(read_ini(os.path.join(lib, bon + ".ini")), skip, refuse_once) if mode != "empty" else []
     for i, row in enumerate(rows):
         # the status line EDCB rewrites with "\r", then the progress line
         print(f'\rSig:0.00 D:0 S:0 sp:{row[3]} ch:{row[4]} ChScan "{row[0]}" {i + 1}/{len(rows)} remain 0 sec', flush=True)
