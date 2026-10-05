@@ -205,7 +205,7 @@ def request_epg_capture(root, *, wait=600, interval=5, log):
             return True
         except CtrlCmdError as e:
             if e.result != CMD_ERR_BUSY:
-                log(f"EpgTimerSrv did not start an EPG capture ({e}); it may run one already")
+                log(f"EpgTimerSrv did not start an EPG capture ({e}): it captures already, or no tuner has GetEpg=1")
                 return True
         except OSError:
             pass  # not listening yet
