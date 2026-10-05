@@ -29,13 +29,15 @@ sudo EDCBTEST_IMAGE=edcb:ci EDCBTEST_SKIP_BUILD=1 tests/integration/run.sh
 | `EDCBTEST_PREFIX` | `edcbtest` | コンテナ名の接頭辞 |
 | `EDCBTEST_PORT_BASE` | `15510` | ホスト側のポート。この番号から 3 つ(`+0`〜`+2`)を `127.0.0.1` に公開する |
 | `EDCBTEST_LOG` | `tests/integration/logs/run-<日時>.log` | ログファイル |
+| `EDCBTEST_MIRAKC_IMAGE` | `mirakc:integration-test` | フェーズ 5 でビルドしてテストする mirakc のイメージのタグ。`EDCBTEST_SKIP_BUILD=1` でも、無ければビルドする |
+| `EDCBTEST_QSVENCC_VERSION` | (GitHub の最新リリース) | T57 で入れる QSVEncC の版 |
 | `EDCBTEST_REAL_INI` | `edcb/ini`(`*.ini` があれば) | T3 と T46 で使う実際の ini のディレクトリ。一時ディレクトリへコピーするだけで、元のファイルは変えない。無ければ T3 は SKIP、T46 は合成したデータを使う |
 
 ## ホストで触るもの
 
 - このスクリプトが作った `${EDCBTEST_PREFIX}-*` という名前のコンテナ(終了時に消す)
 - このスクリプトが作ったネットワーク `${EDCBTEST_PREFIX}-net`(フェーズ 3 の偽サーバ用。終了時に消す)
-- イメージのタグ `$EDCBTEST_IMAGE` と、ビルドが失敗することを確かめる `$EDCBTEST_IMAGE-shouldfail`
+- イメージのタグ `$EDCBTEST_IMAGE` と、ビルドが失敗することを確かめる `$EDCBTEST_IMAGE-shouldfail`、ハードウェアエンコードの見本の `$EDCBTEST_IMAGE-hwaccel` と `$EDCBTEST_IMAGE-hwaccel-qsvencc`、mirakc の `$EDCBTEST_MIRAKC_IMAGE`
 - `mktemp -d` で作る一時ディレクトリ(終了時に消す)
 - `127.0.0.1` のポート `EDCBTEST_PORT_BASE` から 3 つ
 - ログファイル
@@ -53,6 +55,7 @@ Compose のプロジェクトは使わない。稼働中のコンテナや `edcb
 - `phase2.sh` — フェーズ 2 の確認(T0〜T15)。内容は `docs/v2/phases/2-provision.md` の「検証結果」
 - `phase3.sh` — フェーズ 3 の確認(T30〜T39)。偽の Mirakurun(`edcb/tests/fake_mirakurun.py`)を、テストするイメージの python3 でテスト用ネットワークに立て、ホスト名でつなぐ。T35 は到達できない接続先として `192.0.2.1`(文書用のアドレス)を使う
 - `phase4.sh` — フェーズ 4 の確認(T40〜T49)。`phase3.sh` のネットワークと `fake` を使う。偽の Mirakurun は空のパケットしか送らず、本物の `EpgDataCap_Bon` ではサービスが見つからないので、スキャンは偽の `EpgDataCap_Bon`(`edcb/tests/fake_epgdatacap.py`。環境変数 `EDCB_PROVISION_EPGDATACAP` で差し替える)で行う。T47 だけ本物の `EpgDataCap_Bon` で、全チャンネルを選局すること、何も見つからないときにファイルを変えないことを確かめる。T46 は `EDCBTEST_REAL_INI` の `Setting/` に ChSet4 と ChSet5 があれば、それを一時ディレクトリにコピーして使う(無ければ合成したデータ)
+- `phase5.sh` — フェーズ 5 の確認(T50〜T58)。mirakc のイメージをビルドし、`mirakc/config-sample.yml` で起動して、内蔵の pcscd の起動・停止の切り替え(ダミーのソケットをマウント、`DISABLE_PCSCD=1`)、`docker stop` の速さ、`docker restart` 後の再起動を確かめる(チューナーとカードリーダーは要らない)。T56 は mirakc を無効にした `compose.override.yml` で `docker compose config` を確かめる。T57 はハードウェアエンコードの見本を、テストするイメージの上にビルドする(amd64 のみ。GPU は要らない。GitHub の API で QSVEncC の最新版を調べる)。T58 は `phase3.sh` のネットワークと `fake`、`phase4.sh` の `FAKESCAN` を使い、接続先を外したときの起動時の警告と `edcbctl prune` を確かめる
 - `fixtures/` — 確認で使うファイル
 
 ## 確認を足す

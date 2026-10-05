@@ -2,7 +2,8 @@
 # Integration tests for the edcb image. Run as root: sudo tests/integration/run.sh
 #
 # Touches only: containers named ${EDCBTEST_PREFIX}-* that this run creates,
-# the image tags $EDCBTEST_IMAGE and $EDCBTEST_IMAGE-shouldfail, a mktemp -d
+# the image tags $EDCBTEST_IMAGE, $EDCBTEST_IMAGE-shouldfail, $EDCBTEST_IMAGE-hwaccel[-qsvencc]
+# and $EDCBTEST_MIRAKC_IMAGE, a mktemp -d
 # directory, and host ports on 127.0.0.1 (EDCBTEST_PORT_BASE and the next two).
 # No Compose project is used. EDCBTEST_REAL_INI (default edcb/ini) is only read.
 #
@@ -27,6 +28,7 @@ fi
 load_config() {
   IMG=${EDCBTEST_IMAGE:-edcb:integration-test}
   IMG_SHOULDFAIL=${IMG}-shouldfail
+  MIRAKC_IMG=${EDCBTEST_MIRAKC_IMAGE:-mirakc:integration-test}
   SKIP_BUILD=${EDCBTEST_SKIP_BUILD:-0}
   PREFIX=${EDCBTEST_PREFIX:-edcbtest}
   PORT_BASE=${EDCBTEST_PORT_BASE:-15510}
@@ -117,7 +119,7 @@ exec > >(tee -a "$LOG") 2>&1
 rev=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)
 changed=$(git -C "$REPO" status --short 2>/dev/null | wc -l)
 echo "integration tests start $(date '+%F %T'), git $rev $changed changed files"
-echo "image=$IMG skip_build=$SKIP_BUILD prefix=$PREFIX ports=127.0.0.1:$PORT_HTTP-$PORT_HTTP2 tmp=$TMP"
+echo "image=$IMG mirakc image=$MIRAKC_IMG skip_build=$SKIP_BUILD prefix=$PREFIX ports=127.0.0.1:$PORT_HTTP-$PORT_HTTP2 tmp=$TMP"
 echo "real ini: ${REAL_INI:-none}"
 docker version --format 'docker {{.Server.Version}}'
 
