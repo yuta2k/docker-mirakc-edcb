@@ -159,7 +159,7 @@ pytest は 167 件。修正後の結合テスト(ユーザが実行、ビルド�
 
 ### 視聴に使う BonDriver(ユーザの質問を受けて追加、2026-10-06)
 
-新しい BonDriver が「設定/視聴に使用するBonDriver」(`EpgTimerSrv.ini [TVTEST]`)に入らず、EMWUI での視聴に使われないことが分かった。ユーザと相談し、`Num` が無いときだけ、チューナーのある BonDriver をすべて書くことにした(`design.md` の 7.3)。既にある一覧には足さず、`edcbctl backends` に `view` の列を足した。pytest は 170 件。結合テストの T40 に、一覧に 5 つの BonDriver が書かれることの確認を足した(未実行)。
+新しい BonDriver が「設定/視聴に使用するBonDriver」(`EpgTimerSrv.ini [TVTEST]`)に入らず、EMWUI での視聴に使われないことが分かった。ユーザと相談し、`Num` が無いときだけ、チューナーのある BonDriver をすべて書くことにした(`design.md` の 7.3)。既にある一覧には足さず、`edcbctl backends` に `view` の列を足した。pytest は 170 件。結合テストの T40 に、一覧に 5 つの BonDriver が書かれることの確認を足した。結合テスト(ユーザが実行、ビルドあり、`809a24c`)は 34 件すべて PASS。T40 の一覧は `Num=5`、`_T`、`_S`、両対応、`_VM_T`、`_VM_S` だった。
 
 ### 次のフェーズへの申し送り
 
