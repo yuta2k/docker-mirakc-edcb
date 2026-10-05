@@ -18,7 +18,7 @@ ARG LUA_ZLIB_COMMIT=dc3ea17156ad727398ab39501d3cd03e32324165
 # 0: no preallocation, 1: preallocate (upstream behavior), 2: no preallocation on btrfs
 ARG EDCB_PREALLOC_DEFAULT=2
 
-FROM ${ARCH}ubuntu:24.04 AS build
+FROM ${ARCH}ubuntu:26.04 AS build
 # ARGs declared before FROM are only visible in FROM lines; redeclare to use them in this stage
 ARG EDCB_REPO
 ARG EDCB_REF
@@ -100,7 +100,7 @@ RUN mkdir -p /app/share/HttpPublic /app/share/Setting && \
   cp -R EDCB_Material_WebUI/Setting/. /app/share/Setting/ && \
   patch-legacy-util /app/share/HttpPublic/legacy/util.lua
 
-FROM ${ARCH}ubuntu:24.04
+FROM ${ARCH}ubuntu:26.04
 ARG EDCB_REPO
 ARG EDCB_REF
 ARG EDCB_COMMIT
