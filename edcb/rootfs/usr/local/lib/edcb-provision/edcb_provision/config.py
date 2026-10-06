@@ -297,8 +297,11 @@ def _collect_overrides(overrides_dir, warn):
     if not overrides_dir or not os.path.isdir(overrides_dir):
         return entries
     for dirpath, dirnames, filenames in os.walk(overrides_dir):
-        dirnames.sort()
+        # hidden files and folders (the .gitkeep of the repository, editor files) are skipped silently
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
         for name in sorted(filenames):
+            if name.startswith("."):
+                continue
             path = os.path.join(dirpath, name)
             rel = os.path.relpath(path, overrides_dir)
             if not name.lower().endswith(".ini"):

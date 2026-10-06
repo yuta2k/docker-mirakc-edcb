@@ -67,6 +67,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - HTTP(`HttpAccessControlList`)は CivetWeb の `access_control_list`(`civetweb.c` の `check_acl` / `parse_match_net`)。`[+|-]アドレス[/長さ]` をカンマで並べ、最後に一致した規則が効く(既定は拒否)。IPv6 は角かっこなしでも書ける(`+::1`、`+fe80::/10`)。IPv4 の規則は IPv4 の接続元にだけ、IPv6 の規則は IPv6 の接続元にだけ一致する。デュアルスタックのポート(`+5510`)では IPv4 の接続元が IPv4 射影アドレス(`::ffff:a.b.c.d`)に見えるので、`+::ffff:192.168.0.0/112` のように書く。解釈できない規則があると、すべて拒否される。
 - TCP(`TCPAccessControlList`)は EDCB 独自の実装(`Common/TCPServer.cpp` の `TestAcl`)。各規則を接続元と同じアドレスファミリーで `getaddrinfo` し、解釈できなければその時点で拒否する。**IPv4 と IPv6 の規則を混ぜると、どの接続元もどこかの規則で失敗するので、すべて拒否される。** `TCPIPv6=0`(既定)なら IPv4 の規則だけを書く。既定値は `+127.0.0.1,+192.168.0.0/16`。
 - `EnableTCPSrv` の既定は 0(TCP サーバは無効)。
+- Docker が公開したポートにホスト自身から接続すると(`127.0.0.1:<公開ポート>`)、EDCB から見た接続元は Docker のネットワークのゲートウェイのアドレス(`172.x`)になる。`HttpAccessControlList` がその範囲を許可していないと、CivetWeb は応答せずに接続を切る(curl では `000`)。フェーズ 6 の T61 の 2 回目で、v1 の利用者の実データ(localhost と LAN の /24 だけを許可)で確認した。既定の ACL は `172.16.0.0/12` を含むので起きない。
+- `HttpPort` に `s` 付きのポート(`5511s`)があり、`ssl_cert.pem` が無いと、HTTP のポート(`5510`)も開かない(フェーズ 6 の結合テスト T61 の 1 回目で確認。EpgTimerSrv は動いたまま、`127.0.0.1:5510` が接続を拒否し、unhealthy になった)。
 
 ### F14. 終了処理(フェーズ 2 で確認)
 
@@ -172,6 +174,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - `ports: !override` で置き換えになる。
 - `env_file` の `required: false` で、ファイルが無くてもエラーにならない。
 - `depends_on` の `required: false` で、依存先のサービスが無効でも起動できる。
+- **必要な版(フェーズ 6 で確認)**: `!override` は compose-go の `v2.0.0-rc.3`(`loader/reset.go`)からで、これを最初に取り込んだ Docker Compose は **2.24.4**(`docker/compose` の `go.mod`。2.24.0 は `beta.3`、2.24.1 は `rc.1`、2.24.2 / 2.24.3 は `rc.2`)。`env_file` と `depends_on` の `required` は 2.20.0 から(Docker のドキュメントの compose-file リファレンス)。README には 2.24.4 以降と書いた。
+- ポートの変数に `アドレス:ポート` を入れると(`EDCB_HOST_HTTP_PORT=192.0.2.10:5510`)、`${EDCB_HOST_HTTP_PORT:-5510}:5510` が `host_ip` 付きの公開になる(`docker compose config` で確認)。
 - プロジェクト名は、指定が無ければ `compose.yml` のあるフォルダの名前になる。`.env` の `COMPOSE_PROJECT_NAME` で変えられる(`docker compose config` の `name` で確認)。コンテナ、ネットワーク、`name:` の無いボリューム、ビルドしたイメージのタグ(`<プロジェクト名>-<サービス名>`)は、プロジェクト名で区別される。
 
 ## 未確認(担当フェーズで確認すること)

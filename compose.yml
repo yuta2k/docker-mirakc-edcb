@@ -48,7 +48,7 @@ services:
       - ${EDCB_HOST_HTTP_PORT:-5510}:5510
     volumes:
       - ./edcb/ini:/var/local/edcb
-      # 上書き用 ini(docs/v2/design.md の 4 章)
+      # 上書き用 ini(Setup.md の「上書き用 ini」)
       - ./edcb/overrides:/etc/edcb/overrides:ro
 
 volumes:

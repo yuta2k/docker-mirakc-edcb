@@ -5,7 +5,8 @@
 # the image tags $EDCBTEST_IMAGE, $EDCBTEST_IMAGE-shouldfail, $EDCBTEST_IMAGE-hwaccel[-qsvencc]
 # and $EDCBTEST_MIRAKC_IMAGE, a mktemp -d
 # directory, and host ports on 127.0.0.1 (EDCBTEST_PORT_BASE and the next two).
-# No Compose project is used. EDCBTEST_REAL_INI (default edcb/ini) is only read.
+# Phase 6 also creates Compose projects, networks and volumes named ${EDCBTEST_PREFIX}-*.
+# EDCBTEST_REAL_INI (default edcb/ini) is only read.
 #
 # Every phase*.sh next to this file is sourced in version order (phase2.sh,
 # phase3.sh, ..., phase10.sh).
@@ -79,6 +80,13 @@ if [ "${#stale[@]}" -gt 0 ]; then
   echo "containers named ${PREFIX}-* already exist:" >&2
   printf '  %s\n' "${stale[@]}" >&2
   echo "remove them (docker rm -f ...) or set EDCBTEST_PREFIX to another value" >&2
+  exit 2
+fi
+mapfile -t stale < <(docker volume ls --filter "name=^${PREFIX}-" --format '{{.Name}}')
+if [ "${#stale[@]}" -gt 0 ]; then
+  echo "volumes named ${PREFIX}-* already exist:" >&2
+  printf '  %s\n' "${stale[@]}" >&2
+  echo "remove them (docker volume rm ...) or set EDCBTEST_PREFIX to another value" >&2
   exit 2
 fi
 mapfile -t stale < <(docker network ls --filter "name=^${PREFIX}-" --format '{{.Name}}')
