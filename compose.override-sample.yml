@@ -38,7 +38,7 @@ services:
     #   - 40772:40772
 
   # 同梱の mirakc を使わない(外部の mirakc / Mirakurun を使う)場合は、上の mirakc の設定を消して、
-  # 次の 2 行を有効にする。edcb の MIRAKC_ADDRESS / MIRAKC_PORT も接続先に合わせて指定する
+  # 次の 2 行を有効にする。接続先は edcb.env の EDCB_BACKEND_DEFAULT_URL で指定する(Setup.md の「接続先」)
   # mirakc:
   #   profiles: [disabled]
 
@@ -51,11 +51,12 @@ services:
     # /dev/dri を渡す(amd64 のみ。使える GPU は edcb/hwaccel/intel/Dockerfile のコメント参照)。
     # /dev/dri/renderD* の所有グループは自動で引き継がれるので、group_add は要らない。
     # 上の build: とは同時に書けない(EDCB_PREALLOC_DEFAULT は、元のイメージを自分でビルドするときに指定する)
+    # 元のイメージは先に `docker build -t edcb-base:local edcb/` で作る(Setup.md の「ハードウェアエンコード」)
     # build:
     #   context: edcb/hwaccel/intel
     #   args:
-    #     # 拡張する元のイメージ(既定は配布イメージ)
-    #     - BASE_IMAGE=ghcr.io/yuta2k/docker-mirakc-edcb/edcb:latest
+    #     # 拡張する元のイメージ
+    #     - BASE_IMAGE=edcb-base:local
     #     # QSVEncC も入れる場合は版を指定する(https://github.com/rigaya/QSVEnc/releases)
     #     - QSVENCC_VERSION=8.32
     # devices:
@@ -82,6 +83,5 @@ services:
     #   # 追加で渡したいグループ(録画先の共有グループなど)
     #   - "1001"
     # environment:
-    #   # 外部の mirakc / Mirakurun を使う場合(edcb.env に書いてもよい)
-    #   - MIRAKC_ADDRESS=192.168.0.10
-    #   - MIRAKC_PORT=40772
+    #   # 外部の mirakc / Mirakurun を使う場合(edcb.env に書いてもよい。edcb.env-sample 参照)
+    #   - EDCB_BACKEND_DEFAULT_URL=http://192.168.0.10:40772
