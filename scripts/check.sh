@@ -5,7 +5,7 @@
 # Usage: check.sh [check...]
 #
 #   Checks, in the order they run: pytest shellcheck actionlint compose
-#   local-info. Without arguments, all of them run.
+#   links local-info. Without arguments, all of them run.
 #
 # Tools are looked up in .tools/bin (see scripts/install-tools.sh), then in
 # PATH. A missing tool makes its check SKIP, except when CI is set: then it
@@ -19,7 +19,7 @@ set -u
 # a different version is a FAIL when CI is set.
 PYTHON_VERSION=3.14
 
-all_checks=(pytest shellcheck actionlint compose local-info)
+all_checks=(pytest shellcheck actionlint compose links local-info)
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
@@ -184,6 +184,10 @@ check_compose() {
   run compose compose_config
 }
 
+check_links() {
+  run links python3 scripts/check-links.py
+}
+
 check_local_info() {
   run local-info scripts/check-local-info.sh --tracked
 }
@@ -195,6 +199,7 @@ for c in "${checks[@]}"; do
     shellcheck) check_shellcheck ;;
     actionlint) check_actionlint ;;
     compose) check_compose ;;
+    links) check_links ;;
     local-info) check_local_info ;;
   esac
   echo
