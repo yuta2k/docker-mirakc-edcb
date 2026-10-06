@@ -14,3 +14,4 @@ mirakc/config.yml
 .tools/
 # machine-specific patterns for scripts/check-local-info.sh
 .local-info-patterns
+__pycache__/

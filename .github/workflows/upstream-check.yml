@@ -1,8 +1,14 @@
 name: upstream-check
 
-# Checks for a newer xtne6f/EDCB release tag (work-plus-s-YYMMDD).
-# If one exists, updates EDCB_REF / EDCB_COMMIT in edcb/Dockerfile and builds the image
-# with the patches. On success it opens a PR, on failure it opens an issue.
+# Checks for newer upstream releases:
+# - edcb: a newer xtne6f/EDCB release tag (work-plus-s-YYMMDD). Updates EDCB_REF /
+#   EDCB_COMMIT in edcb/Dockerfile and builds the image with the patches.
+# - mirakc: a newer mirakc/mirakc release (<version>-debian on Docker Hub). Updates
+#   MIRAKC_VERSION / MIRAKC_DIGEST in mirakc/Dockerfile and builds the image.
+# On success each opens a PR, on failure an issue.
+# - hwaccel-intel: builds the sample edcb/hwaccel/intel/Dockerfile on the edcb image
+#   of this commit, without QSVEncC and with its latest release. Nothing is published;
+#   a failure only fails the job.
 #
 # PRs created with the default GITHUB_TOKEN do not trigger other workflows, so the build is
 # done here before the PR is created. To have the build workflow run on the PR as well,
@@ -23,7 +29,7 @@ concurrency:
   group: ${{ github.workflow }}
 
 jobs:
-  check:
+  edcb:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.UPSTREAM_CHECK_TOKEN || github.token }}
@@ -139,3 +145,160 @@ jobs:
           else
             gh issue create --title "$title" --body "$body"
           fi
+
+  mirakc:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.UPSTREAM_CHECK_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.UPSTREAM_CHECK_TOKEN || github.token }}
+
+      - id: upstream
+        name: Find latest release
+        run: |
+          current=$(sed -n 's/^ARG MIRAKC_VERSION=//p' mirakc/Dockerfile)
+          # release tags look like 3.4.88-debian; main-debian and debian move
+          latest=$(curl -fsSL --retry 3 \
+            'https://hub.docker.com/v2/repositories/mirakc/mirakc/tags?page_size=100&ordering=last_updated' |
+            jq -r '.results[].name' | sed -n 's/^\([0-9]*\.[0-9]*\.[0-9]*\)-debian$/\1/p' |
+            sort -V | tail -n 1)
+          if [ -z "$current" ] || [ -z "$latest" ]; then
+            echo "::error::could not determine versions (current='$current' latest='$latest')"
+            exit 1
+          fi
+          # the digest of the multi-platform image index
+          token=$(curl -fsSL --retry 3 \
+            'https://auth.docker.io/token?service=registry.docker.io&scope=repository:mirakc/mirakc:pull' |
+            jq -r .token)
+          digest=$(curl -fsSI --retry 3 -H "Authorization: Bearer $token" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://registry-1.docker.io/v2/mirakc/mirakc/manifests/$latest-debian" |
+            tr -d '\r' | sed -n 's/^docker-content-digest: *//Ip')
+          case $digest in
+            sha256:*) ;;
+            *) echo "::error::could not get the digest of $latest-debian"; exit 1 ;;
+          esac
+          echo "current: $current, latest: $latest ($digest)"
+          newer=false
+          if [ "$latest" != "$current" ] &&
+             [ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n 1)" = "$latest" ]; then
+            newer=true
+          fi
+          branch="upstream/mirakc-$latest"
+          if [ "$newer" = true ] && git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "branch $branch already exists; skipping"
+            newer=false
+          fi
+          {
+            echo "current=$current"
+            echo "latest=$latest"
+            echo "digest=$digest"
+            echo "newer=$newer"
+            echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update pins
+        if: steps.upstream.outputs.newer == 'true'
+        env:
+          LATEST: ${{ steps.upstream.outputs.latest }}
+          DIGEST: ${{ steps.upstream.outputs.digest }}
+        run: |
+          sed -i \
+            -e "s/^ARG MIRAKC_VERSION=.*/ARG MIRAKC_VERSION=$LATEST/" \
+            -e "s/^ARG MIRAKC_DIGEST=.*/ARG MIRAKC_DIGEST=$DIGEST/" \
+            mirakc/Dockerfile
+          git diff --exit-code --quiet mirakc/Dockerfile && { echo "::error::Dockerfile was not changed"; exit 1; }
+          git diff
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.upstream.outputs.newer == 'true'
+
+      - id: build
+        name: Build and test
+        if: steps.upstream.outputs.newer == 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker buildx build --load -t mirakc:upstream-check mirakc 2>&1 | tee "$RUNNER_TEMP/build.log"
+          docker run --rm --entrypoint mirakc mirakc:upstream-check --version 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+
+      - name: Create PR
+        if: steps.upstream.outputs.newer == 'true' && steps.build.outcome == 'success'
+        env:
+          CURRENT: ${{ steps.upstream.outputs.current }}
+          LATEST: ${{ steps.upstream.outputs.latest }}
+          DIGEST: ${{ steps.upstream.outputs.digest }}
+          BRANCH: ${{ steps.upstream.outputs.branch }}
+          BASE: ${{ github.event.repository.default_branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898281+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$BRANCH"
+          git commit -am "feat: update mirakc to $LATEST"
+          git push origin "$BRANCH"
+          gh pr create --base "$BASE" --head "$BRANCH" \
+            --title "feat: update mirakc to $LATEST" \
+            --body "$(printf '%s\n' \
+              "mirakc の新しいリリースを検出しました。" \
+              "" \
+              "- 現在: \`$CURRENT\`" \
+              "- 新規: \`$LATEST\` (\`$DIGEST\`)" \
+              "" \
+              "amd64 のビルドと \`mirakc --version\` の確認は通っています: $RUN_URL" \
+              "チューナーとカードリーダーでの動作(スクランブル解除を含む)は確認していません。")"
+
+      - name: Create issue
+        if: steps.upstream.outputs.newer == 'true' && steps.build.outcome != 'success'
+        env:
+          LATEST: ${{ steps.upstream.outputs.latest }}
+          DIGEST: ${{ steps.upstream.outputs.digest }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="mirakc $LATEST のビルドに失敗しました"
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          body=$(printf '%s\n' \
+            "mirakc \`$LATEST\` (\`$DIGEST\`) に固定を更新してビルドしましたが、失敗しました。" \
+            "" \
+            "$RUN_URL" \
+            "" \
+            '~~~~~~~~' \
+            "$(tail -n 60 "$RUNNER_TEMP/build.log")" \
+            '~~~~~~~~')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+  hwaccel-intel:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the edcb image
+        run: docker buildx build --load -t edcb:hwaccel-base edcb
+
+      - id: qsvencc
+        name: Find the latest QSVEncC
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(gh api repos/rigaya/QSVEnc/releases/latest --jq .tag_name)
+          if [ -z "$version" ]; then
+            echo "::error::could not determine the latest QSVEncC release"
+            exit 1
+          fi
+          echo "latest QSVEncC: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test the sample
+        env:
+          QSVENCC_VERSION: ${{ steps.qsvencc.outputs.version }}
+        run: |
+          .github/scripts/hwaccel-intel-test.sh edcb:hwaccel-base ""
+          .github/scripts/hwaccel-intel-test.sh edcb:hwaccel-base "$QSVENCC_VERSION"

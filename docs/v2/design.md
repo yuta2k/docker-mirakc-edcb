@@ -285,6 +285,7 @@ EDCB は ChSet4 がある BonDriver だけを認識する(`facts.md` の F3)の�
 | `backends` | 接続先ごとの到達可否、チューナー数(実際 / 設定)、チャンネル構成のずれの有無を表示する |
 | `chscan [<名前>… \| --all] [--rebuild] [--force]` | スキャンして分割まで行う。`--rebuild` は ChSet5 を作り直す(下記)。`--force` は利用者が置いた ChSet4 を退避して引き取る(下記) |
 | `status` | 録画中か、録画中の予約、次の予約の開始時刻を表示する(U13。EpgTimerSrv の制御用ソケットに問い合わせる) |
+| `prune [--diff]` | 外した接続先と、本数が 0 になった種別の生成物(ChSet4、`EpgTimerSrv.ini` のセクション、`[TVTEST]` の行、`.provision/` の記録)を、退避を取ってから片付ける(フェーズ 5 で追加。詳細は `phases/5-mirakc.md` の作業 4)。起動時は消さずに警告で案内する |
 
 - `chscan --rebuild` は、ChSet5 を退避してから削除し、全接続先をスキャンし直す。古い ChSet5 にあった利用者のフラグ(EPG 取得対象、検索対象)は、ONID / TSID / SID が一致するサービスに引き継ぐ。**(フェーズ 4 で決めた点)** 1 つでもスキャンに失敗したら、ChSet5 を元に戻し、どのスキャン結果も使わない(一部の接続先のサービスだけが ChSet5 から消えるのを防ぐ)。名前と一緒には指定できない。
 - ChSet を変更したあとは、EpgTimerSrv に読み直させる必要がある。U11 の結果、`ReloadSetting` では ChSet4 が読み直されないので、「`docker compose restart edcb` を実行してください」と表示し、続けて `status` の内容を表示する(録画中なら、再起動で録画が止まると警告する)。

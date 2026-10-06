@@ -18,7 +18,7 @@ ARG LUA_ZLIB_COMMIT=dc3ea17156ad727398ab39501d3cd03e32324165
 # 0: no preallocation, 1: preallocate (upstream behavior), 2: no preallocation on btrfs
 ARG EDCB_PREALLOC_DEFAULT=2
 
-FROM ${ARCH}ubuntu:24.04 AS build
+FROM ${ARCH}ubuntu:26.04 AS build
 # ARGs declared before FROM are only visible in FROM lines; redeclare to use them in this stage
 ARG EDCB_REPO
 ARG EDCB_REF
@@ -100,7 +100,7 @@ RUN mkdir -p /app/share/HttpPublic /app/share/Setting && \
   cp -R EDCB_Material_WebUI/Setting/. /app/share/Setting/ && \
   patch-legacy-util /app/share/HttpPublic/legacy/util.lua
 
-FROM ${ARCH}ubuntu:24.04
+FROM ${ARCH}ubuntu:26.04
 ARG EDCB_REPO
 ARG EDCB_REF
 ARG EDCB_COMMIT
@@ -142,29 +142,12 @@ RUN apt-get update && \
     procps \
     tzdata && \
 \
-  # install EDCB
+  # install EDCB. Hardware encoding drivers are not included: see hwaccel/intel/Dockerfile
   ( \
     cd /usr/local/src/EDCB/Document/Unix && \
     make install && \
     make install_extra \
   ) && \
-\
-#   # install Intel Media Driver
-#   # https://dgpu-docs.intel.com/driver/client/overview.html#installing-client-gpus-on-ubuntu-desktop-24-04-lts
-#   INTEL_MEDIA_DRIVER_DEPENDENCIES="gnupg ca-certificates wget" && \
-#   apt-get install -y --no-install-recommends $INTEL_MEDIA_DRIVER_DEPENDENCIES && \
-#   wget -qO - https://repositories.intel.com/gpu/intel-graphics.key | \
-#     gpg --yes --dearmor --output /usr/share/keyrings/intel-graphics.gpg && \
-#   echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu noble unified" | \
-#     tee /etc/apt/sources.list.d/intel-gpu-noble.list && \
-#   apt-get update && \
-#   apt-get install -y --no-install-recommends libva-dev libmfx-dev intel-media-va-driver-non-free && \
-#   # install QSVEncC
-#   wget https://github.com/rigaya/QSVEnc/releases/download/7.82/qsvencc_7.82_Ubuntu24.04_amd64.deb && \
-#   apt-get install -y ./qsvencc_7.82_Ubuntu24.04_amd64.deb && \
-#   rm qsvencc_7.82_Ubuntu24.04_amd64.deb && \
-#   apt-get remove -y $INTEL_MEDIA_DRIVER_DEPENDENCIES && \
-# \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 

@@ -14,9 +14,10 @@
 # Exits 1 if any check failed.
 set -u
 
-# Python for the unit tests. The edcb image is Ubuntu 24.04, whose python3
-# is 3.12. Only used when uv is available.
-PYTHON_VERSION=3.12
+# Python for the unit tests: the python3 of the edcb image (Ubuntu 26.04).
+# Only uv can pick the version; without uv the python3 in PATH is used, and
+# a different version is a FAIL when CI is set.
+PYTHON_VERSION=3.14
 
 all_checks=(pytest shellcheck actionlint compose local-info)
 
@@ -86,7 +87,18 @@ check_pytest() {
   local args=(-p no:cacheprovider edcb/tests)
   if command -v uv >/dev/null; then
     run pytest uv run --no-project --python "$PYTHON_VERSION" --with pytest pytest "${args[@]}"
-  elif command -v pipx >/dev/null; then
+    return
+  fi
+  local version
+  version=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null)
+  if [ "$version" != "$PYTHON_VERSION" ]; then
+    if [ -n "${CI:-}" ]; then
+      record pytest FAIL "uv not found and python3 is ${version:-missing}, not $PYTHON_VERSION"
+      return
+    fi
+    echo "WARNING: uv not found; testing with python3 ${version:-?} instead of $PYTHON_VERSION" >&2
+  fi
+  if command -v pipx >/dev/null; then
     run pytest pipx run pytest "${args[@]}"
   elif python3 -c 'import pytest' 2>/dev/null; then
     run pytest python3 -m pytest "${args[@]}"

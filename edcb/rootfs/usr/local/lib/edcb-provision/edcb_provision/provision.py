@@ -4,7 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 
-from . import apply, backends, channels, config, fsutil, httppublic, initfiles
+from . import apply, backends, channels, config, fsutil, httppublic, initfiles, prune
 from .state import State
 
 
@@ -59,7 +59,8 @@ def setup_backends(env, paths, owner, *, diff, r, fetch=None):
     """Fetch the backends, install their BonDrivers and return the tuner count entries.
 
     Never raises: a backend problem must not keep EpgTimerSrv from starting.
-    Returns (backends, their Info by name, entries, number of changes).
+    Returns (backends, their Info by name, entries, number of changes); after
+    an unexpected error, the Info is None (the backends are unknown).
     """
     try:
         found, warnings = backends.parse_env(env)
@@ -75,7 +76,7 @@ def setup_backends(env, paths, owner, *, diff, r, fetch=None):
         return found, infos, backends.tuner_entries(paths.root, found, infos, warn=r.warn), changes
     except Exception as e:  # noqa: BLE001 - see the docstring
         r.warn(f"backends are not set up: {type(e).__name__}: {e}")
-        return [], {}, [], 0
+        return [], None, [], 0
 
 
 def setup_channels(env, paths, found, infos, state, backup, owner, *, diff, r):
@@ -90,6 +91,18 @@ def setup_channels(env, paths, found, infos, state, backup, owner, *, diff, r):
     except Exception as e:  # noqa: BLE001 - see the docstring
         r.warn(f"channel files are not set up: {type(e).__name__}: {e}")
         return 0
+
+
+def report_leftovers(env, paths, found, infos, state, *, r):
+    """Warn about leftovers of removed backends; never removes them (edcbctl prune does)."""
+    if infos is None:
+        # the backends are unknown: every one would look removed
+        return
+    try:
+        keep = backends.ignored_names(env, found)
+        prune.report_at_start(prune.find(paths.root, state, found, infos, keep), warn=r.warn)
+    except Exception as e:  # noqa: BLE001 - like setup_backends
+        r.warn(f"cannot look for leftovers of removed backends: {type(e).__name__}: {e}")
 
 
 def run(env, paths, *, diff=False, boot=False, reporter=None, fetch=None):
@@ -121,7 +134,8 @@ def run(env, paths, *, diff=False, boot=False, reporter=None, fetch=None):
 
     found, infos, entries, changes = setup_backends(env, paths, owner, diff=diff, r=r, fetch=fetch)
     count += changes
-    count += setup_channels(env, paths, found, infos, state, backup, owner, diff=diff, r=r)
+    count += setup_channels(env, paths, found, infos or {}, state, backup, owner, diff=diff, r=r)
+    report_leftovers(env, paths, found, infos, state, r=r)
 
     plan = config.collect(env, paths.root, paths.overrides, boot=boot, extra=entries)
     results = apply.compute(plan, paths.root)

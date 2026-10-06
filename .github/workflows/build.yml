@@ -16,15 +16,17 @@ concurrency:
 jobs:
   # checks that need no Docker daemon (scripts/check.sh): unit tests of the
   # provisioning, shellcheck, actionlint, compose config and the local-info check.
-  # pytest runs on Python 3.12, as in the image: with uv, check.sh asks for 3.12;
-  # without uv it uses "pipx run", i.e. the runner's python3, which is 3.12.
+  # pytest runs on the Python of the image (PYTHON_VERSION in check.sh), which
+  # uv downloads; the runner's python3 is older.
   check:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
       - name: Install tools
-        run: scripts/install-tools.sh
+        run: |
+          scripts/install-tools.sh
+          pipx install uv
 
       - name: Check
         run: scripts/check.sh
