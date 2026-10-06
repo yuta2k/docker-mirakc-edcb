@@ -103,6 +103,9 @@ def test_overrides(tmp_path):
     (ov / "EpgTimerSrv.ini").write_text("[SET]\nHttpNumThreads=30\nCompatFlags=1\n")
     (ov / "Setting" / "HttpPublic.ini").write_text("[HLS]\nx=1\n")
     (ov / "notes.txt").write_text("hello")
+    (ov / ".gitkeep").write_text("")
+    (ov / ".hidden").mkdir()
+    (ov / ".hidden" / "EpgTimerSrv.ini").write_text("[SET]\nSaveDebugLog=0\n")
     plan = config.collect({"EDCB_COMPAT_FLAGS": "2"}, str(tmp_path), str(ov))
     e = entries(plan)
     assert e[("EpgTimerSrv.ini", "SET", "HttpNumThreads")].value == "30"
@@ -110,4 +113,6 @@ def test_overrides(tmp_path):
     assert e[("EpgTimerSrv.ini", "SET", "CompatFlags")].value == "2"  # env wins
     assert e[("Setting/HttpPublic.ini", "HLS", "x")].force
     assert any("notes.txt" in w for w in plan.warnings)
+    assert not any(".gitkeep" in w or ".hidden" in w for w in plan.warnings)
+    assert not any(f.startswith(".hidden") for f, _, _ in e)
     assert any("CompatFlags is ignored" in w for w in plan.warnings)
