@@ -256,10 +256,17 @@ docker logs "$C61" 2>&1 | grep -q '^provision: chscan ' && { echo "!! a channel 
 if [ -e /dev/bus/usb ]; then
   docker logs "${P6MIGRATE}-mirakc-1" 2>&1 | grep -q 'WARNING: /dev/bus/usb' && { echo "!! the USB warning"; ok=0; }
 fi
-# 9. 動作を確かめる
+# 9. 動作を確かめる. The ACL of the v1 data is kept as it is, and it may not
+# allow the Docker network that connections to the published port come from;
+# so the WebUI is checked from inside the container (127.0.0.1), and the
+# result through the published port is only shown.
 for path in /E3/ /legacy/; do
-  code=$(http_code "http://127.0.0.1:$PORT_HTTP$path")
-  echo "GET $path -> $code"
+  code=$(docker exec "$C61" python3 -c 'import sys, urllib.request
+try:
+    print(urllib.request.urlopen("http://127.0.0.1:5510" + sys.argv[1], timeout=10).status)
+except Exception as e:
+    print(getattr(e, "code", 0))' "$path")
+  echo "GET $path in the container -> $code, through the published port -> $(http_code "http://127.0.0.1:$PORT_HTTP$path")"
   [ "$code" = 200 ] || ok=0
 done
 dc "$D61" exec -T edcb edcbctl backends || ok=0
