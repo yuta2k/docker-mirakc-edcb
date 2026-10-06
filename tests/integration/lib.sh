@@ -87,9 +87,23 @@ sums() { (cd "$1" && sha256sum ./*.ini Setting/*.ini .provision/webui.ini 2>/dev
 
 # Run control --------------------------------------------------------------
 
+# Compose projects and volumes this run created (phase 6); removed on exit.
+TRACKED_PROJECTS=()
+TRACKED_VOLUMES=()
+
+# track_project <name>: a Compose project (its containers, networks and volumes)
+track_project() { TRACKED_PROJECTS+=("$1"); }
+
+# track_volume <name>: a named volume outside a tracked project
+track_volume() { TRACKED_VOLUMES+=("$1"); }
+
 cleanup() {
   local n
+  for n in "${TRACKED_PROJECTS[@]}"; do
+    docker compose -p "$n" down -v --remove-orphans -t 120 >/dev/null 2>&1
+  done
   for n in "${TRACKED[@]}"; do docker rm -f "$n" >/dev/null 2>&1; done
+  for n in "${TRACKED_VOLUMES[@]}"; do docker volume rm "$n" >/dev/null 2>&1; done
   for n in "${TRACKED_NETS[@]}"; do docker network rm "$n" >/dev/null 2>&1; done
   [ -n "${TMP:-}" ] && [ -d "$TMP" ] && rm -rf "$TMP"
 }

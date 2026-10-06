@@ -38,13 +38,14 @@ sudo EDCBTEST_IMAGE=edcb:ci EDCBTEST_SKIP_BUILD=1 tests/integration/run.sh
 - このスクリプトが作った `${EDCBTEST_PREFIX}-*` という名前のコンテナ(終了時に消す)
 - このスクリプトが作ったネットワーク `${EDCBTEST_PREFIX}-net`(フェーズ 3 の偽サーバ用。終了時に消す)
 - イメージのタグ `$EDCBTEST_IMAGE` と、ビルドが失敗することを確かめる `$EDCBTEST_IMAGE-shouldfail`、ハードウェアエンコードの見本の `$EDCBTEST_IMAGE-hwaccel` と `$EDCBTEST_IMAGE-hwaccel-qsvencc`、mirakc の `$EDCBTEST_MIRAKC_IMAGE`
+- フェーズ 6 の Compose のプロジェクト `${EDCBTEST_PREFIX}-p6setup` と `${EDCBTEST_PREFIX}-p6migrate`(コンテナ、ネットワーク、ボリューム)と、v1 を模したコンテナ `${EDCBTEST_PREFIX}-v1-edcb` / `${EDCBTEST_PREFIX}-v1-mirakc`、ボリューム `${EDCBTEST_PREFIX}-v1_mirakc_epg`(終了時に消す)
 - `mktemp -d` で作る一時ディレクトリ(終了時に消す)
 - `127.0.0.1` のポート `EDCBTEST_PORT_BASE` から 3 つ
 - ログファイル
 
-Compose のプロジェクトは使わない。稼働中のコンテナや `edcb/ini/`、`mirakc/config.yml`、`compose.yml` には触らない。`prune` のようなホスト全体に効くコマンドも使わない。
+Compose のプロジェクトは、フェーズ 6 の上記のものだけを使う(一時ディレクトリの中で、`${EDCBTEST_PREFIX}-` で始まる名前)。稼働中のコンテナや `edcb/ini/`、`mirakc/config.yml`、`compose.yml` には触らない。`prune` のようなホスト全体に効くコマンドも使わない。
 
-`${EDCBTEST_PREFIX}-*` のコンテナやネットワークが既にあると、消さずに終了する(前回の実行が残ったものなら手で消すか、`EDCBTEST_PREFIX` を変える)。
+`${EDCBTEST_PREFIX}-*` のコンテナ、ネットワーク、ボリュームが既にあると、消さずに終了する(前回の実行が残ったものなら手で消すか、`EDCBTEST_PREFIX` を変える)。
 
 ホストに `/dev/dri/renderD*` が無いときは、T6 のうち render グループの確認だけを飛ばす(`--group-add` の確認は行う)。
 
@@ -56,7 +57,8 @@ Compose のプロジェクトは使わない。稼働中のコンテナや `edcb
 - `phase3.sh` — フェーズ 3 の確認(T30〜T39)。偽の Mirakurun(`edcb/tests/fake_mirakurun.py`)を、テストするイメージの python3 でテスト用ネットワークに立て、ホスト名でつなぐ。T35 は到達できない接続先として `192.0.2.1`(文書用のアドレス)を使う
 - `phase4.sh` — フェーズ 4 の確認(T40〜T49)。`phase3.sh` のネットワークと `fake` を使う。偽の Mirakurun は空のパケットしか送らず、本物の `EpgDataCap_Bon` ではサービスが見つからないので、スキャンは偽の `EpgDataCap_Bon`(`edcb/tests/fake_epgdatacap.py`。環境変数 `EDCB_PROVISION_EPGDATACAP` で差し替える)で行う。T47 だけ本物の `EpgDataCap_Bon` で、全チャンネルを選局すること、何も見つからないときにファイルを変えないことを確かめる。T46 は `EDCBTEST_REAL_INI` の `Setting/` に ChSet4 と ChSet5 があれば、それを一時ディレクトリにコピーして使う(無ければ合成したデータ)
 - `phase5.sh` — フェーズ 5 の確認(T50〜T58)。mirakc のイメージをビルドし、`mirakc/config-sample.yml` で起動して、内蔵の pcscd の起動・停止の切り替え(ダミーのソケットをマウント、`DISABLE_PCSCD=1`)、`docker stop` の速さ、`docker restart` 後の再起動を確かめる(チューナーとカードリーダーは要らない)。T56 は mirakc を無効にした `compose.override.yml` で `docker compose config` を確かめる。T57 はハードウェアエンコードの見本を、テストするイメージの上にビルドする(amd64 のみ。GPU は要らない。GitHub の API で QSVEncC の最新版を調べる)。T58 は `phase3.sh` のネットワークと `fake`、`phase4.sh` の `FAKESCAN` を使い、接続先を外したときの起動時の警告と `edcbctl prune` を確かめる
-- `fixtures/` — 確認で使うファイル
+- `phase6.sh` — フェーズ 6 の確認(T60、T61)。`Setup.md` の手順(T60)と `docs/migration-v1-to-v2.md` の手順(T61)を、文書の順に Compose で実行する。リポジトリで管理しているファイルを作業ツリーから一時ディレクトリへコピーして使う(コミットしていない変更も確かめる)。イメージは Compose でビルドせず、T0 と T50 のイメージを `compose.test.yml`(`.env` の `COMPOSE_FILE` で重ねる)で指定する。T61 は、v1 と v2 の 2 つのコミットを持つ一時的な git リポジトリで `git pull` の動き(未追跡の `compose.yml` で止まること)を確かめ、v1 のコンテナは `sleep` で代用する。`docker compose` か `git` が無ければ SKIP
+- `fixtures/` — 確認で使うファイル。`v1-compose-sample.yml` は v1.0.4 の `compose-sample.yml`(T61 で v1 の構成を作る元)
 
 ## 確認を足す
 
