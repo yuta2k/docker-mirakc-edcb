@@ -30,7 +30,7 @@
 | 3 | `phases/3-backends.md` | BonDriver の修正、複数バックエンド、チューナー数の自動設定 | 完了 |
 | 4 | `phases/4-channels.md` | チャンネルスキャンの自動化、S/T 分割、`edcbctl` | 完了 |
 | 5 | `phases/5-mirakc.md` | ベースイメージと依存の更新、mirakc コンテナの pcscd 切り替え、ハードウェアエンコードの見本、HLS 方式の視聴、外した接続先の片付け(`edcbctl prune`) | 完了 |
-| 6 | `phases/6-docs-release.md` | README / Setup の書き直し、移行手順、リリース準備 | 作業中 |
+| 6 | `phases/6-docs-release.md` | README / Setup の書き直し、移行手順、リリース準備 | レビュー待ち |
 
 状態は「未着手 / 作業中 / レビュー待ち / 完了」のいずれか。着手時と完了時に、この表を更新すること。
 
