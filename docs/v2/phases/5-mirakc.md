@@ -225,6 +225,16 @@
 
 `sudo tests/integration/run.sh`(コミット `de8523b`): **43 件すべて PASS**。USB デバイスの警告を足した T51 も PASS(USB を渡さずに起動すると、内蔵の pcscd が起動し、`WARNING: /dev/bus/usb is not available` が出る)。これで、このフェーズの確認に未実施のものは無い。
 
+### コードレビューでの修正(2026-10-06)
+
+`/code-review` の指摘のうち、次の 3 件を直した(pytest に 3 件を足した。修正前のコードでは 3 件とも失敗することを確かめた)。
+
+- **設定を誤った接続先を「外した」と見なしていた**: ホスト名にアンダースコアがあるなどで `parse_env` が無視した接続先は、環境変数がある限り使うつもりの接続先なので、起動時の警告と `edcbctl prune` の対象から外した(`backends.ignored_names`)。prune は、そのことを警告で伝える。直す前は、利用者の `Count` や `Priority` を含むセクション、ChSet4、`.provision/` の記録を消していた。
+- **接続先の準備が例外で失敗した起動で、誤った警告を出していた**: 接続先が 0 件に見えるため、使っている接続先がすべて「残骸」と報告されていた。準備が失敗した起動では確認しない。
+- **prune と `edcbctl chscan` が同時に動くと、chscan の記録を上書きしえた**: prune は、スキャンのロックを取ってから状態ファイルを読み直し、計画を立て直す。
+
+作業ツリーの `edcb/ini/.gitkeep` の削除と、追跡していない `edcb/ini.bak/` についての指摘は、利用者のデータのディレクトリなので、コードでは扱わずユーザに伝えた。
+
 ### 次のフェーズへの申し送り
 
 - **移行手順(フェーズ 6)**: v2 の `compose.yml` は mirakc に USB デバイスを渡さない。`compose.override.yml` の mirakc の `devices` に `/dev/bus/usb:/dev/bus/usb` を足すよう、必ず案内する(足さないと mirakc のログに警告が出て、復号できない)。ホストの pcscd を使う書き方と、`DISABLE_PCSCD=1` も載せる。

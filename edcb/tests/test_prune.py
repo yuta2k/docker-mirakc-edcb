@@ -202,3 +202,54 @@ def test_fixed_reservations_are_counted(tmp_path):
         s.close()
     # EpgTimerSrv is not running
     assert prune._fixed_reservations(str(tmp_path), plan) is None
+
+
+def test_backend_with_bad_settings_is_not_treated_as_removed(tree, two_backends):
+    # an underscore in the host name makes parse_env ignore backend VM
+    env = {**two_backends, "EDCB_BACKEND_VM_URL": "http://tuner_pc:40772"}
+    r = boot(tree, env)
+    assert any("backend VM is ignored" in w for w in r.warning_lines)
+    assert not any("prune" in w for w in r.warning_lines), r.warning_lines
+    before = tree_hashes(tree.root)
+    rc, changed, r, out = run_prune(tree, env)
+    assert (rc, changed, out.strip()) == (0, False, "Nothing to prune.")
+    assert any("VM is ignored because of its settings" in w for w in r.warning_lines)
+    for rel in VM_FILES + VM_STATE:
+        assert exists(tree, rel), rel
+    assert srv(tree).has_section("BonDriver_LinuxMirakc_VM_T.so")
+    assert tree_hashes(tree.root) == before
+
+
+def test_no_leftover_report_when_the_backends_fail(tree, two_backends, monkeypatch):
+    from edcb_provision import backends
+
+    def broken(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(backends, "install_bondrivers", broken)
+    r = boot(tree, {**two_backends, "EDCB_BACKEND_VM_URL": "http://127.0.0.1:1"})
+    assert any("backends are not set up" in w for w in r.warning_lines)
+    assert not any("prune" in w or "leftovers" in w for w in r.warning_lines), r.warning_lines
+
+
+def test_prune_keeps_records_written_while_it_waited(tree, two_backends):
+    from edcb_provision import backends
+
+    boot(tree, two_backends)
+    rel = "Setting/BonDriver_LinuxMirakc_T(LinuxMirakc).ChSet4.txt"
+
+    def fetch(found, timeout):
+        # a scan finishes and saves the state while prune asks the backends
+        result = backends.fetch_all(found, timeout)
+        st = State(tree.root).load()
+        st.section("channels")["DEFAULT"]["scanned_at"] = "while prune waited"
+        st.save(prune.fsutil.Owner(None, None))
+        return result
+
+    r = Capture()
+    rc, changed = prune.command(two_backends, tree, log=r.log, warn=r.warn, out=io.StringIO(), fetch=fetch)
+    assert (rc, changed) == (0, True)
+    st = State(tree.root).load()
+    assert st.section("channels")["DEFAULT"]["scanned_at"] == "while prune waited"
+    assert st.recorded(rel) is not None
+    assert "VM" not in st.section("channels")

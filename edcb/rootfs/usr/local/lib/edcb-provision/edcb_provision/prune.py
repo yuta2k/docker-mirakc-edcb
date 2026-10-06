@@ -97,10 +97,15 @@ def _srv(root):
     return ini.IniFile.load(path) if os.path.isfile(path) else ini.IniFile()
 
 
-def find(root, state, found, infos):
-    """Return the Plan for the backends found (with their Info by name)."""
+def find(root, state, found, infos, keep=()):
+    """Return the Plan for the backends found (with their Info by name).
+
+    keep: names of backends whose settings were ignored (backends.ignored_names);
+    they are not removed, so nothing of theirs is a leftover.
+    """
     plan = Plan()
     by_name = {b.name: b for b in found}
+    keep = set(keep)
     srv = _srv(root)
 
     # every BonDriver of ours that EDCB may still know about: (name, kind)
@@ -127,19 +132,21 @@ def find(root, state, found, infos):
     state_dir = os.path.join(root, fsutil.STATE_DIR)
     for n in sorted(os.listdir(state_dir)) if os.path.isdir(state_dir) else []:
         m = _CACHE_RE.fullmatch(n) or _SCAN_RE.fullmatch(n)
-        if m and m.group(1) not in by_name:
+        if m and m.group(1) not in by_name and m.group(1) not in keep:
             removed.add(m.group(1))
             plan.state_files.append(os.path.join(fsutil.STATE_DIR, n))
     for name in state.section(channels.STATE_KEY):
-        if name not in by_name:
+        if name not in by_name and name not in keep:
             removed.add(name)
             plan.channel_records.append(name)
     # every kind of a removed backend, also those only some files mention
-    removed |= {n for n, _ in candidates if n not in by_name}
+    removed |= {n for n, _ in candidates if n not in by_name and n not in keep}
     candidates |= {(n, k) for n in removed for k in KINDS}
 
     stale = {}  # BonDriver file name (lower) -> (file name, reason)
     for name, kind in sorted(candidates):
+        if name in keep:
+            continue
         bon = bondriver_name(name, kind)
         if name in by_name:
             counts, _ = backends.tuner_counts(by_name[name], infos[name])
@@ -252,12 +259,18 @@ def command(env, paths, *, diff=False, log, warn, out, fetch=None):
     found, warnings = backends.parse_env(env)
     for w in warnings:
         warn(w)
+    keep = backends.ignored_names(env, found)
+    if keep:
+        warn(
+            f"backend {', '.join(sorted(keep))} is ignored because of its settings (see above); "
+            "its files are left alone. Fix the variables to have them checked"
+        )
     state = State(paths.root).load()
     for w in state.warnings:
         warn(w)
     live = (fetch or backends.fetch_all)(found, backends.TOTAL_TIMEOUT)
     infos = backends.resolve(paths.root, found, live, owner, dry_run=True, log=log, warn=warn)
-    plan = find(paths.root, state, found, infos)
+    plan = find(paths.root, state, found, infos, keep)
     for rel in plan.user_chset4:
         warn(f"{rel} was not made by the provisioning (or was edited) and is left alone; remove it yourself if it is not used")
     if plan.empty():
@@ -285,6 +298,12 @@ def command(env, paths, *, diff=False, log, warn, out, fetch=None):
         if not locked:
             warn("a channel scan is running; try again later")
             return 1, False
+        # a scan may have finished since the plan was made: plan again on what it left
+        state = State(paths.root).load()
+        plan = find(paths.root, state, found, infos, keep)
+        if plan.empty():
+            print("Nothing to prune.", file=out)
+            return 0, False
         try:
             apply(paths.root, plan, state, backup, owner, log=log)
             state.save(owner)

@@ -219,6 +219,23 @@ def parse_env(env):
     return backends, warnings
 
 
+def ignored_names(env, found):
+    """Backend names that have variables but were ignored by parse_env (bad settings).
+
+    Their files must be left alone: the user still means to use them.
+    """
+    names = set()
+    for var, value in env.items():
+        if var.startswith(PREFIX) and value is not None and value.strip():
+            name, _, fld = var[len(PREFIX) :].rpartition("_")
+            if fld in FIELDS and _NAME_RE.fullmatch(name):
+                names.add(name)
+    for var in ("MIRAKC_ADDRESS", "MIRAKC_PORT", "MIRKAC_ADDRESS", "MIRKAC_PORT"):
+        if (env.get(var) or "").strip():
+            names.add(DEFAULT_NAME)
+    return names - {b.name for b in found}
+
+
 # ----- fetching -----
 
 
