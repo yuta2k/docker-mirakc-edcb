@@ -85,23 +85,23 @@
 
 ## 受け入れ条件
 
-- [ ] (作業 0)edcb のイメージが新しいベースイメージでビルドでき、スモークテストと結合テスト(`tests/integration/run.sh`)が通る
-- [ ] (作業 0)mirakc のベースイメージが版とダイジェストで固定され、`upstream-check.yml` が更新を検出できる
-- [ ] (作業 0)CI の pytest が、イメージと同じ版の Python で通る。ワークフローが actionlint を通る
-- [ ] (作業 3)HLS 方式(`432p/h264/ffmpeg`)のリモート視聴が再生できる。または、直せない理由と回避策が実施記録にある
-- [ ] `docker build mirakc/` が成功する
-- [ ] ソケットをマウントせずに起動すると、内蔵の pcscd が起動する(プロセス一覧で確認)
-- [ ] ダミーのソケットを `/run/pcscd/pcscd.comm` にマウントして起動すると、内蔵の pcscd が起動しない
-- [ ] `DISABLE_PCSCD=1` でも、内蔵の pcscd が起動しない
-- [ ] `docker stop` で mirakc が速やかに終了する(10 秒の強制終了を待たない)
-- [ ] `compose.override.yml` で mirakc を無効にした構成で、`docker compose config` が成功し、edcb だけが起動対象になる
-- [ ] 見本の Dockerfile が、`QSVENCC_VERSION` の指定なしでビルドできる。できたイメージで `ffmpeg -hide_banner -encoders` に `h264_qsv` と `h264_vaapi` が出る
-- [ ] `QSVENCC_VERSION` を指定してビルドでき、`qsvencc --version` が動く
-- [ ] 見本のイメージでも、EpgTimerSrv が通常どおり起動する
-- [ ] `edcb/Dockerfile` からコメントアウト部分が無くなっている
-- [ ] (作業 4)接続先を外して起動すると、残骸は消えず、警告で `edcbctl prune` が案内される
-- [ ] (作業 4)`edcbctl prune --diff` は何も変えずに片付ける内容を表示し、`edcbctl prune` は退避を取ってから片付ける。利用者の ChSet4 と ChSet5 は残る。片付けたあとの起動で警告が出ない
-- [ ] (作業 4)種別の本数が 0 になったときのセクションと `[TVTEST]` の行も片付けられる
+- [x] (作業 0)edcb のイメージが新しいベースイメージでビルドでき、スモークテストと結合テスト(`tests/integration/run.sh`)が通る
+- [x] (作業 0)mirakc のベースイメージが版とダイジェストで固定され、`upstream-check.yml` が更新を検出できる
+- [x] (作業 0)CI の pytest が、イメージと同じ版の Python で通る。ワークフローが actionlint を通る
+- [x] (作業 3)HLS 方式(`432p/h264/ffmpeg`)のリモート視聴が再生できる。または、直せない理由と回避策が実施記録にある
+- [x] `docker build mirakc/` が成功する
+- [x] ソケットをマウントせずに起動すると、内蔵の pcscd が起動する(プロセス一覧で確認)
+- [x] ダミーのソケットを `/run/pcscd/pcscd.comm` にマウントして起動すると、内蔵の pcscd が起動しない
+- [x] `DISABLE_PCSCD=1` でも、内蔵の pcscd が起動しない
+- [x] `docker stop` で mirakc が速やかに終了する(10 秒の強制終了を待たない)
+- [x] `compose.override.yml` で mirakc を無効にした構成で、`docker compose config` が成功し、edcb だけが起動対象になる
+- [x] 見本の Dockerfile が、`QSVENCC_VERSION` の指定なしでビルドできる。できたイメージで `ffmpeg -hide_banner -encoders` に `h264_qsv` と `h264_vaapi` が出る
+- [x] `QSVENCC_VERSION` を指定してビルドでき、`qsvencc --version` が動く
+- [x] 見本のイメージでも、EpgTimerSrv が通常どおり起動する
+- [x] `edcb/Dockerfile` からコメントアウト部分が無くなっている
+- [x] (作業 4)接続先を外して起動すると、残骸は消えず、警告で `edcbctl prune` が案内される
+- [x] (作業 4)`edcbctl prune --diff` は何も変えずに片付ける内容を表示し、`edcbctl prune` は退避を取ってから片付ける。利用者の ChSet4 と ChSet5 は残る。片付けたあとの起動で警告が出ない
+- [x] (作業 4)種別の本数が 0 になったときのセクションと `[TVTEST]` の行も片付けられる
 
 ## 検証
 
@@ -205,3 +205,30 @@
 3. 短い録画(または録画中に `edcbctl status`)
 4. (ホストに pcscd がある場合)ホストの pcscd のソケットをマウントした構成で視聴。ホストとコンテナの pcsc-lite の版を記録する
 5. (Intel GPU がある場合)見本のイメージで `720p/h264/ffmpeg-qsv` の視聴
+
+### 実機確認の結果(2026-10-06、ユーザが実行)
+
+上の手順の 1〜5 を、作業用の環境(チューナー 4 本、USB のカードリーダー、Intel Alder Lake の内蔵 GPU)で行い、**すべてできた**。
+
+| 確認 | 結果 |
+|---|---|
+| 1. v2 で起動。内蔵の pcscd(pcsc-lite 2.3.3)が起動し、USB の警告が出ない | できた |
+| 2. HTTPS で TS-Live! と HLS(`432p/h264/ffmpeg`)のライブ視聴、地上波と BS | できた(作業 3 の受け入れ条件) |
+| 3. 短い録画 | できた |
+| 4. ホストの pcscd(pcsc-lite 2.5.1、systemd のソケット起動)のソケットをマウントした構成で、スクランブル解除して視聴 | できた。コンテナのクライアントは 2.3.3。`/dev/bus/usb` は渡していない |
+| 5. 見本のイメージ(`QSVENCC_VERSION=8.32`)と `/dev/dri` で、`720p/h264/ffmpeg-qsv` の視聴 | できた。`vainfo` は iHD 26.1.2 を読み込み、H.264 / HEVC / VP9 などの `VAEntrypointEncSlice` / `EncSliceLP` を表示した |
+
+- `/dev/bus/usb` だけで、内蔵の pcscd からカードリーダーが使えた(v1 の `/dev/bus` は要らない)。
+- 実機確認の前にユーザが `compose.override.yml` に `/dev/bus/usb` を足した。v1 から移る利用者にも同じ作業が要る(フェーズ 6 の移行手順)。
+
+### 未確認のもの
+
+- 結合テストの T51 に足した「USB デバイスが無いときの警告」の確認(コミット `45e62de`)は、まだ結合テストで実行していない。実機の手順 1 で、USB を渡したときに警告が出ないことは確かめた。
+
+### 次のフェーズへの申し送り
+
+- **移行手順(フェーズ 6)**: v2 の `compose.yml` は mirakc に USB デバイスを渡さない。`compose.override.yml` の mirakc の `devices` に `/dev/bus/usb:/dev/bus/usb` を足すよう、必ず案内する(足さないと mirakc のログに警告が出て、復号できない)。ホストの pcscd を使う書き方と、`DISABLE_PCSCD=1` も載せる。
+- **Setup.md**: ハードウェアエンコードの見本の使い方(上の「Setup.md の材料」)。Gen12 以降は QSV、Gen11 以前は VA-API だけ。`vainfo` での確認方法。
+- **README**: 外した接続先の片付け(`edcbctl prune --diff` / `edcbctl prune`)。
+- `compose.override-sample.yml` の「同梱の mirakc を使わない」のコメントは、まだ `MIRAKC_ADDRESS` を案内している。`EDCB_BACKEND_DEFAULT_URL` に直す。
+- ffmpeg 9 では、HLS で字幕を含めると、字幕の無い番組で開始が約 16 秒遅れる(tsreadex の差し込みが 15 秒後のため)。Ubuntu 26.04 の ffmpeg 8 では起きないが、ベースイメージを上げるときは HLS の開始時間を確かめる。
