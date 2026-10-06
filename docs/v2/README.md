@@ -29,8 +29,8 @@
 | 2 | `phases/2-provision.md` | プロビジョニングの基盤、実行ユーザ、ヘルスチェック | 完了 |
 | 3 | `phases/3-backends.md` | BonDriver の修正、複数バックエンド、チューナー数の自動設定 | 完了 |
 | 4 | `phases/4-channels.md` | チャンネルスキャンの自動化、S/T 分割、`edcbctl` | 完了 |
-| 5 | `phases/5-mirakc.md` | ベースイメージと依存の更新、mirakc コンテナの pcscd 切り替え、ハードウェアエンコードの見本、HLS 方式の視聴、外した接続先の片付け(`edcbctl prune`) | レビュー待ち |
-| 6 | `phases/6-docs-release.md` | README / Setup の書き直し、移行手順、リリース準備 | 未着手 |
+| 5 | `phases/5-mirakc.md` | ベースイメージと依存の更新、mirakc コンテナの pcscd 切り替え、ハードウェアエンコードの見本、HLS 方式の視聴、外した接続先の片付け(`edcbctl prune`) | 完了 |
+| 6 | `phases/6-docs-release.md` | README / Setup の書き直し、移行手順、リリース準備 | 作業中 |
 
 状態は「未着手 / 作業中 / レビュー待ち / 完了」のいずれか。着手時と完了時に、この表を更新すること。
 
@@ -64,7 +64,7 @@
 
 | 道具 | 内容 | Docker デーモン |
 |---|---|---|
-| `scripts/check.sh` | pytest、shellcheck、actionlint、`docker compose config`、環境固有の情報の混入チェック。CI の `check` ジョブと同じもの。shellcheck と actionlint は `scripts/install-tools.sh` で `.tools/` に入る | 不要 |
+| `scripts/check.sh` | pytest、shellcheck、actionlint、`docker compose config`、文書のリンク(`scripts/check-links.py`)、環境固有の情報の混入チェック。CI の `check` ジョブと同じもの。shellcheck と actionlint は `scripts/install-tools.sh` で `.tools/` に入る | 不要 |
 | `tests/integration/run.sh` | イメージをビルドし、コンテナを起動して確かめる結合テスト。使い方は `tests/integration/README.md`。root で実行する(`sudo tests/integration/run.sh`)。結果はログに `RESULT <番号>: PASS / FAIL / SKIP` で残る。CI でも実行する | 必要 |
 | `scripts/check-local-info.sh` | 環境固有の情報(ホームディレクトリのパス、ホスト名、LAN のアドレスなど)がコミットに入るのを止める。`git config core.hooksPath scripts/git-hooks` で、コミット時に自動で動く。その環境だけの禁止パターンは、git 管理外の `.local-info-patterns` に書く(1 行に 1 つの拡張正規表現) | 不要 |
 

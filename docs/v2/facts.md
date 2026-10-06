@@ -172,6 +172,8 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - `ports: !override` で置き換えになる。
 - `env_file` の `required: false` で、ファイルが無くてもエラーにならない。
 - `depends_on` の `required: false` で、依存先のサービスが無効でも起動できる。
+- **必要な版(フェーズ 6 で確認)**: `!override` は compose-go の `v2.0.0-rc.3`(`loader/reset.go`)からで、これを最初に取り込んだ Docker Compose は **2.24.4**(`docker/compose` の `go.mod`。2.24.0 は `beta.3`、2.24.1 は `rc.1`、2.24.2 / 2.24.3 は `rc.2`)。`env_file` と `depends_on` の `required` は 2.20.0 から(Docker のドキュメントの compose-file リファレンス)。README には 2.24.4 以降と書いた。
+- ポートの変数に `アドレス:ポート` を入れると(`EDCB_HOST_HTTP_PORT=192.0.2.10:5510`)、`${EDCB_HOST_HTTP_PORT:-5510}:5510` が `host_ip` 付きの公開になる(`docker compose config` で確認)。
 - プロジェクト名は、指定が無ければ `compose.yml` のあるフォルダの名前になる。`.env` の `COMPOSE_PROJECT_NAME` で変えられる(`docker compose config` の `name` で確認)。コンテナ、ネットワーク、`name:` の無いボリューム、ビルドしたイメージのタグ(`<プロジェクト名>-<サービス名>`)は、プロジェクト名で区別される。
 
 ## 未確認(担当フェーズで確認すること)
