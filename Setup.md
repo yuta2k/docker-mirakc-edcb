@@ -397,6 +397,8 @@ EMWUI のライブ視聴(TS-Live!)や PWA は、ブラウザの制約で HTTPS �
 
 `EpgTimerSrv.ini` に `HttpPort` が無ければ、`ssl_cert.pem` があるときに `5510,5520,5511s,5521s` を書きます。既に `HttpPort` がある場合(v1 から移行した場合など)は、`EDCB_HTTP_PORT=5510,5520,5511s,5521s` を指定するか、`HttpPort` を編集してください。
 
+**`HttpPort` に `s` の付いたポートがあるのに `ssl_cert.pem` が無いと、EDCB は HTTP のポートも開かず、WebUI に接続できなくなります。** 証明書を外すときは、`HttpPort` から `s` の付いたポートも消してください(ヘルスチェックは unhealthy になります)。
+
 ## pcscd
 
 カードリーダー(B-CAS)は、mirakc コンテナの pcscd から使います。2 通りの構成があります。

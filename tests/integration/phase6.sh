@@ -191,6 +191,14 @@ else
     > "$D61/edcb/ini/Setting/BonDriver_LinuxMirakc(LinuxMirakc).ChSet4.txt"
   printf '\xef\xbb\xbfGR Service A\tGR\t32736\t32736\t1024\t1\t0\t1\t1\n' > "$D61/edcb/ini/Setting/ChSet5.txt"
 fi
+# A v1 folder with HTTPS ports in HttpPort also has ssl_cert.pem; without it EDCB
+# opens no HTTP port at all. Put a test certificate (the real key is not copied).
+if grep -qiE '^[[:space:]]*HttpPort[[:space:]]*=.*[0-9]s' "$D61/edcb/ini/EpgTimerSrv.ini" 2>/dev/null; then
+  echo "HttpPort has HTTPS ports: adding a test ssl_cert.pem"
+  openssl req -new -newkey rsa:2048 -nodes -x509 -days 1 -sha256 -subj /CN=edcb \
+    -keyout "$TMP/t61-key.pem" -out "$TMP/t61-cert.pem" 2>/dev/null
+  cat "$TMP/t61-cert.pem" "$TMP/t61-key.pem" > "$D61/edcb/ini/ssl_cert.pem"
+fi
 # one reservation (the line of T48)
 printf '\xef\xbb\xbf2030/01/01\t20:00:00\t00:30:00\tIntegration test\tTest station\t32736\t32736\t1024\t65535\t2\t0\t1\t1\t0\t0\t0\tcomment\t\t0\t0\t\t0\t0\t0\t0\t2030/01/01\t20:00:00\t0\t0\t0\t0\t0\t0\t\n' \
   > "$D61/edcb/ini/Setting/Reserve.txt"

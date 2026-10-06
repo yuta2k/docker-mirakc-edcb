@@ -67,6 +67,7 @@ EMWUI の上記コミットと EDCB `260904` の組み合わせで、`/legacy/` 
 - HTTP(`HttpAccessControlList`)は CivetWeb の `access_control_list`(`civetweb.c` の `check_acl` / `parse_match_net`)。`[+|-]アドレス[/長さ]` をカンマで並べ、最後に一致した規則が効く(既定は拒否)。IPv6 は角かっこなしでも書ける(`+::1`、`+fe80::/10`)。IPv4 の規則は IPv4 の接続元にだけ、IPv6 の規則は IPv6 の接続元にだけ一致する。デュアルスタックのポート(`+5510`)では IPv4 の接続元が IPv4 射影アドレス(`::ffff:a.b.c.d`)に見えるので、`+::ffff:192.168.0.0/112` のように書く。解釈できない規則があると、すべて拒否される。
 - TCP(`TCPAccessControlList`)は EDCB 独自の実装(`Common/TCPServer.cpp` の `TestAcl`)。各規則を接続元と同じアドレスファミリーで `getaddrinfo` し、解釈できなければその時点で拒否する。**IPv4 と IPv6 の規則を混ぜると、どの接続元もどこかの規則で失敗するので、すべて拒否される。** `TCPIPv6=0`(既定)なら IPv4 の規則だけを書く。既定値は `+127.0.0.1,+192.168.0.0/16`。
 - `EnableTCPSrv` の既定は 0(TCP サーバは無効)。
+- `HttpPort` に `s` 付きのポート(`5511s`)があり、`ssl_cert.pem` が無いと、HTTP のポート(`5510`)も開かない(フェーズ 6 の結合テスト T61 の 1 回目で確認。EpgTimerSrv は動いたまま、`127.0.0.1:5510` が接続を拒否し、unhealthy になった)。
 
 ### F14. 終了処理(フェーズ 2 で確認)
 
